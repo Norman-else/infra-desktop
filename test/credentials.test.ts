@@ -9,9 +9,13 @@ import { effectivePath, which } from '../src/main/paths';
 
 const fake = join(__dirname, 'fake-aws-vault', process.platform === 'win32' ? 'fake-aws-vault.exe' : 'fake-aws-vault');
 const session = join(tmpdir(), 'fake-aws-vault-session');
+const usedCodes = join(tmpdir(), 'fake-aws-vault-used');
 
 describe.skipIf(!existsSync(fake))('fetchCredentials (fake aws-vault)', () => {
-  beforeAll(() => rmSync(session, { force: true }));
+  beforeAll(() => {
+    rmSync(session, { force: true });
+    rmSync(usedCodes, { force: true });
+  });
   const opts = { awsVault: fake, profile: 'dev', path: effectivePath() };
 
   it('reports need-mfa when aws-vault prompts', async () => {
@@ -21,7 +25,7 @@ describe.skipIf(!existsSync(fake))('fetchCredentials (fake aws-vault)', () => {
   it('explains a rejected MFA code', async () => {
     const r = await fetchCredentials({ ...opts, mfaToken: '000000' });
     expect(r.kind).toBe('error');
-    expect(r.kind === 'error' && r.message).toMatch(/MFA 验证码错误/);
+    expect(r.kind === 'error' && r.message).toMatch(/wrong or already used/);
   });
 
   it('returns credentials with a token, then reuses the cached session', async () => {
