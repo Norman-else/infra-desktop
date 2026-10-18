@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppState, ClusterHealth, EnvInfo, EnvState, UpdateState } from '../shared/types';
-import { CredentialServer, cleanAwsEnv, fetchCredentials, type FetchResult } from './credentials';
+import { CredentialServer, cleanAwsEnv, detectBackend, fetchCredentials, profileHasSession, type FetchResult } from './credentials';
 import { discoverEnvs, mergeKubeConfigs, parseAwsConfig, singleContextKubeConfig, type KubeConfig } from './discovery';
 import { awsConfigPath, effectivePath, kubeconfigPaths, resolveBinary, which } from './paths';
 import { RadarProcess } from './radar';
@@ -65,12 +65,17 @@ class EnvSession {
   private async fetch(mfaToken?: string): Promise<void> {
     const b = this.m.binaries;
     if (!b.awsVault) return this.fail('找不到 aws-vault，请安装或在设置里配置 awsVaultPath');
+    const backend = await this.m.awsVaultBackend();
+    // aws-vault's MFA prompt can't be captured on Windows, so without a cached session ask for the code up front.
+    const profiles = [this.state.profile, this.state.sourceProfile].filter((p): p is string => !!p);
+    if (!mfaToken && !(await profileHasSession(b.awsVault, backend, profiles, effectivePath()))) return this.handle({ kind: 'need-mfa' }, false);
     const r = await fetchCredentials({
       awsVault: b.awsVault,
       profile: this.state.profile,
       mfaToken,
       passphrase: this.m.passphrase,
       duration: this.m.settings.duration,
+      backend,
       path: effectivePath(),
     });
     await this.handle(r, !!mfaToken);
@@ -218,8 +223,8 @@ class EnvSession {
 }
 
 function pickInfo(s: EnvState): EnvInfo {
-  const { name, label, color, profile, roleArn, region, context, clusterName } = s;
-  return { name, label, color, profile, roleArn, region, context, clusterName };
+  const { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName } = s;
+  return { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName };
 }
 
 export class EnvManager extends EventEmitter {
@@ -230,6 +235,7 @@ export class EnvManager extends EventEmitter {
   private sessions = new Map<string, EnvSession>();
   private problems: string[] = [];
   private kube: KubeConfig = {};
+  private backend?: Promise<string | undefined>;
   active: string | null = null;
   update: UpdateState = { status: 'disabled', current: '' };
 
@@ -251,6 +257,7 @@ export class EnvManager extends EventEmitter {
   /** (Re)read settings, ~/.aws/config and kubeconfig. Running sessions are kept. */
   reload(): void {
     this.problems = [];
+    this.backend = undefined;
     try {
       this.settings = loadSettings(this.settingsPath);
     } catch (e) {
@@ -294,6 +301,14 @@ export class EnvManager extends EventEmitter {
     this.sessions = next;
     if (this.active && !next.has(this.active)) this.active = null;
     this.emitState();
+  }
+
+  /** aws-vault backend to use: from settings, else whichever backend actually holds keys (detected once per reload). */
+  awsVaultBackend(): Promise<string | undefined> {
+    if (this.settings.awsVaultBackend) return Promise.resolve(this.settings.awsVaultBackend);
+    if (!this.binaries.awsVault) return Promise.resolve(undefined);
+    this.backend ??= detectBackend(this.binaries.awsVault, effectivePath());
+    return this.backend;
   }
 
   /** Writes the single-context kubeconfig and isolated AWS config for an env; returns the kubeconfig path. */

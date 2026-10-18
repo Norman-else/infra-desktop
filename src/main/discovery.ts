@@ -109,6 +109,7 @@ export function discoverEnvs(profiles: AwsProfile[], kube: KubeConfig, overrides
     envs.push({
       name: p.name,
       profile: p.name,
+      sourceProfile: p.sourceProfile,
       label: o.label ?? p.name.toUpperCase(),
       color,
       roleArn: p.roleArn,

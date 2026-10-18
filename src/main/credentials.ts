@@ -22,6 +22,8 @@ export interface FetchOptions {
   mfaToken?: string;
   passphrase?: string;
   duration?: string;
+  /** aws-vault keyring backend (wincred / keychain / file …); inherited from the environment when unset */
+  backend?: string;
   path: string;
   timeoutMs?: number;
 }
@@ -51,6 +53,7 @@ export function fetchCredentials(o: FetchOptions): Promise<FetchResult> {
   args.push(o.profile);
   const env = cleanAwsEnv(o.path);
   if (o.passphrase) env.AWS_VAULT_FILE_PASSPHRASE = o.passphrase;
+  if (o.backend) env.AWS_VAULT_BACKEND = o.backend;
 
   return new Promise((resolve) => {
     let stdout = '';
@@ -64,7 +67,13 @@ export function fetchCredentials(o: FetchOptions): Promise<FetchResult> {
       if (child.exitCode === null) child.kill();
       resolve(r);
     };
-    const timer = setTimeout(() => finish({ kind: 'error', message: `aws-vault 超时无响应\n${stderr}`.trim() }), o.timeoutMs ?? 60_000);
+    // Without a token, a hang means aws-vault is waiting for input it prompted for on the console
+    // (on Windows that prompt bypasses stderr), so ask the user instead of reporting an error.
+    const onTimeout = (): FetchResult => {
+      if (!o.mfaToken) return o.backend === 'file' && !o.passphrase ? { kind: 'need-passphrase' } : { kind: 'need-mfa' };
+      return { kind: 'error', message: `aws-vault 超时无响应\n${stderr}`.trim() };
+    };
+    const timer = setTimeout(() => finish(onTimeout()), o.timeoutMs ?? (o.mfaToken ? 60_000 : 15_000));
 
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => {
@@ -89,6 +98,70 @@ export function fetchCredentials(o: FetchOptions): Promise<FetchResult> {
       finish({ kind: 'error', message: explainAwsVaultError(stderr.trim() || `aws-vault exited with code ${code}`) });
     });
   });
+}
+
+/** Rows of `aws-vault list`: profile, stored credentials ('-' if none), cached sessions ('-' if none). */
+function parseList(listOutput: string): { profile: string; credentials: string; sessions: string }[] {
+  const lines = listOutput.split(/\r?\n/);
+  const start = lines.findIndex((l) => /^=+/.test(l.trim()));
+  return lines
+    .slice(start + 1)
+    .map((l) => l.trim().split(/\s{2,}/))
+    .filter((cols) => cols.length >= 3)
+    .map(([profile, credentials, sessions]) => ({ profile, credentials, sessions }));
+}
+
+/** Profiles that have long-lived keys stored, parsed from `aws-vault list` output. */
+export function profilesWithKeys(listOutput: string): string[] {
+  return parseList(listOutput)
+    .filter((r) => r.credentials !== '-')
+    .map((r) => r.profile);
+}
+
+/** Whether `aws-vault list` shows a cached session for the profile with at least a few minutes left. */
+export function hasCachedSession(listOutput: string, profiles: string[]): boolean {
+  return parseList(listOutput)
+    .filter((r) => profiles.includes(r.profile) && r.sessions !== '-')
+    .some((row) => row.sessions.split(/,\s*/).some((s) => {
+    const m = /:(?:(\d+)h)?(?:(\d+)m)?/.exec(s);
+    return !!m && Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0) >= 5;
+  }));
+}
+
+function awsVaultList(awsVault: string, backend: string | undefined, path: string): Promise<string> {
+  const env = cleanAwsEnv(path);
+  if (backend) env.AWS_VAULT_BACKEND = backend;
+  return new Promise((resolve) => {
+    let out = '';
+    const child = spawn(awsVault, ['list'], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const timer = setTimeout(() => child.kill(), 15_000);
+    child.stdout.on('data', (d) => (out += d));
+    child.on('error', () => resolve(''));
+    child.on('close', () => {
+      clearTimeout(timer);
+      resolve(out);
+    });
+  });
+}
+
+const listKeys = async (awsVault: string, backend: string, path: string) => profilesWithKeys(await awsVaultList(awsVault, backend, path));
+
+/** Ask aws-vault whether a profile can be exported without MFA right now. */
+export async function profileHasSession(awsVault: string, backend: string | undefined, profiles: string[], path: string): Promise<boolean> {
+  return hasCachedSession(await awsVaultList(awsVault, backend, path), profiles);
+}
+
+/**
+ * The backend the user's terminal uses may differ from the system environment (e.g. a PowerShell profile
+ * sets AWS_VAULT_BACKEND=wincred while a machine-wide variable says "file"). Pick the first backend that
+ * actually holds keys, starting with the inherited one.
+ */
+export async function detectBackend(awsVault: string, path: string): Promise<string | undefined> {
+  const inherited = process.env.AWS_VAULT_BACKEND;
+  const platformDefaults = process.platform === 'win32' ? ['wincred', 'file'] : process.platform === 'darwin' ? ['keychain', 'file'] : ['secret-service', 'pass', 'file'];
+  const candidates = [...new Set([inherited, ...platformDefaults].filter((b): b is string => !!b))];
+  for (const backend of candidates) if ((await listKeys(awsVault, backend, path)).length) return backend;
+  return undefined;
 }
 
 function explainAwsVaultError(msg: string): string {

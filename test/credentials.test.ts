@@ -64,3 +64,32 @@ describe('CredentialServer', () => {
     expect(JSON.parse(out).AccessKeyId).toBe('AKIDTEST');
   });
 });
+
+describe('profilesWithKeys', () => {
+  it('parses aws-vault list output', async () => {
+    const { profilesWithKeys } = await import('../src/main/credentials');
+    const out = [
+      'Profile                  Credentials              Sessions',
+      '=======                  ===========              ========',
+      'default                  -                        -',
+      'root                     root                     -',
+      'dev                      -                        sts.AssumeRole:6h47m23s',
+    ].join('\r\n');
+    expect(profilesWithKeys(out)).toEqual(['root']);
+  });
+});
+
+describe('hasCachedSession', () => {
+  const out = [
+    'Profile                  Credentials              Sessions',
+    '=======                  ===========              ========',
+    'root                     root                     sts.GetSessionToken:2m10s',
+    'dev                      -                        sts.AssumeRole:6h47m23s',
+    'sat                      -                        -',
+  ].join('\n');
+  it('finds a usable session on the profile or its source profile', async () => {
+    const { hasCachedSession } = await import('../src/main/credentials');
+    expect(hasCachedSession(out, ['dev', 'root'])).toBe(true);
+    expect(hasCachedSession(out, ['sat', 'root'])).toBe(false); // root's session is about to expire
+  });
+});

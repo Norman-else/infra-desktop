@@ -72,7 +72,7 @@ xattr -cr "/Applications/Radar Desktop.app"
   "awsVaultPath": "",        // 默认从 PATH 找
   "radarPath": "",           // 默认找 kubectl-radar / radar
   "kubeconfig": "",          // 默认 $KUBECONFIG 或 ~/.kube/config
-  "duration": "",            // 传给 aws-vault --duration，例如 "1h"
+  "duration": "",            // 传给 aws-vault --duration；要和终端里用的一致（例如 "8h"），才能复用已缓存的会话
   "radarArgs": [],           // 额外的 radar 参数
   "envs": {
     "prod": { "label": "PROD", "color": "#c62828", "context": "acme-prod", "hidden": false }

@@ -8,6 +8,8 @@ export interface Settings {
   radarPath?: string;
   /** Kubeconfig file(s), same syntax as $KUBECONFIG; defaults to $KUBECONFIG or ~/.kube/config */
   kubeconfig?: string;
+  /** aws-vault backend (wincred / keychain / file); auto-detected from where keys are stored when empty */
+  awsVaultBackend?: string;
   /** Passed to aws-vault as --duration, e.g. "1h" */
   duration?: string;
   /** Extra arguments appended to every radar invocation */
@@ -18,6 +20,7 @@ export interface Settings {
 
 const TEMPLATE: Settings = {
   awsVaultPath: '',
+  awsVaultBackend: '',
   radarPath: '',
   kubeconfig: '',
   duration: '',
@@ -34,6 +37,6 @@ export function loadSettings(file: string): Settings {
   }
   const raw = JSON.parse(readFileSync(file, 'utf8')) as Settings;
   // Treat empty strings from the template as "not set".
-  for (const k of ['awsVaultPath', 'radarPath', 'kubeconfig', 'duration'] as const) if (!raw[k]) delete raw[k];
+  for (const k of ['awsVaultPath', 'awsVaultBackend', 'radarPath', 'kubeconfig', 'duration'] as const) if (!raw[k]) delete raw[k];
   return raw;
 }

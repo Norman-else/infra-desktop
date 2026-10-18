@@ -16,6 +16,8 @@ export interface EnvInfo {
   label: string;
   color: string;
   profile: string;
+  /** Profile holding the long-lived keys (aws-vault caches the MFA session there when chaining) */
+  sourceProfile?: string;
   roleArn?: string;
   region?: string;
   context: string;
