@@ -74,23 +74,23 @@ function buildMenu() {
   const template: MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
     {
-      label: '环境',
+      label: 'Environment',
       submenu: [
-        { label: '切换环境…', accelerator: 'CmdOrCtrl+Shift+E', click: () => sendCommand('switcher') },
+        { label: 'Switch Environment…', accelerator: 'CmdOrCtrl+Shift+E', click: () => sendCommand('switcher') },
         { type: 'separator' },
-        { label: '打开设置文件', click: () => void shell.openPath(manager.settingsPath) },
-        { label: '重新加载配置', click: () => manager.reload() },
-        { label: '检查更新', click: () => void updater?.check() },
-        ...(process.platform === 'darwin' ? [] : [{ type: 'separator' as const }, { role: 'quit' as const, label: '退出' }]),
+        { label: 'Open Settings File', click: () => void shell.openPath(manager.settingsPath) },
+        { label: 'Reload Config', click: () => manager.reload() },
+        { label: 'Check for Updates', click: () => void updater?.check() },
+        ...(process.platform === 'darwin' ? [] : [{ type: 'separator' as const }, { role: 'quit' as const, label: 'Quit' }]),
       ],
     },
     { role: 'editMenu' },
     {
-      label: '视图',
+      label: 'View',
       submenu: [
-        { label: '刷新 radar 页面', accelerator: 'CmdOrCtrl+R', click: () => activeView()?.webContents.reload() },
-        { label: 'radar 开发者工具', accelerator: 'CmdOrCtrl+Shift+I', click: () => activeView()?.webContents.toggleDevTools() },
-        { label: '外壳开发者工具', accelerator: 'CmdOrCtrl+Alt+I', click: () => win?.webContents.toggleDevTools() },
+        { label: 'Reload Radar', accelerator: 'CmdOrCtrl+R', click: () => activeView()?.webContents.reload() },
+        { label: 'Radar Developer Tools', accelerator: 'CmdOrCtrl+Shift+I', click: () => activeView()?.webContents.toggleDevTools() },
+        { label: 'App Developer Tools', accelerator: 'CmdOrCtrl+Alt+I', click: () => win?.webContents.toggleDevTools() },
         { type: 'separator' },
         { role: 'togglefullscreen' },
       ],

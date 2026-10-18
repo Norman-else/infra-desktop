@@ -43,7 +43,7 @@ export class RadarProcess {
     };
     this.child.stdout!.on('data', push);
     this.child.stderr!.on('data', push);
-    this.child.on('error', (e) => this.log.push(`无法启动 radar: ${e.message}`));
+    this.child.on('error', (e) => this.log.push(`Could not start radar: ${e.message}`));
     this.child.on('exit', (code) => {
       if (!this.stopped) this.o.onExit(code, this.log);
     });
@@ -53,7 +53,7 @@ export class RadarProcess {
   async waitReady(timeoutMs = 90_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      if (this.stopped || !this.child || this.child.exitCode !== null) throw new Error('radar 进程已退出');
+      if (this.stopped || !this.child || this.child.exitCode !== null) throw new Error('radar exited');
       try {
         const res = await fetch(this.url, { signal: AbortSignal.timeout(2000) });
         if (res.status < 500) return;
@@ -62,7 +62,7 @@ export class RadarProcess {
       }
       await new Promise((r) => setTimeout(r, 400));
     }
-    throw new Error('等待 radar 启动超时');
+    throw new Error('Timed out waiting for radar to start');
   }
 
   stop(): void {

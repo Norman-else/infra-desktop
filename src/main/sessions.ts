@@ -20,6 +20,10 @@ class EnvSession {
   private renewTimer?: NodeJS.Timeout;
   private healthTimer?: NodeJS.Timeout;
   private cred?: { uri: string; token: string };
+  /** The aws-vault call in progress; only one at a time, since an MFA code is single-use. */
+  private inflight?: { promise: Promise<void>; code?: string };
+  /** Bumped on disconnect so results of calls started before it are dropped. */
+  private generation = 0;
 
   constructor(info: EnvInfo, private m: EnvManager) {
     this.state = { ...info, status: 'idle' };
@@ -37,7 +41,7 @@ class EnvSession {
   async connect(): Promise<void> {
     if (this.state.status !== 'idle' && this.state.status !== 'error') return;
     this.purpose = 'connect';
-    this.update({ status: 'checking', step: '检查 aws-vault 会话…', message: undefined, logTail: undefined, prompt: undefined, promptError: undefined });
+    this.update({ status: 'checking', step: 'Checking aws-vault session…', message: undefined, logTail: undefined, prompt: undefined, promptError: undefined });
     await this.fetch();
   }
 
@@ -48,12 +52,15 @@ class EnvSession {
   }
 
   async submitMfa(code: string): Promise<void> {
-    this.update({ prompt: undefined, promptError: undefined, step: '验证 MFA…' });
+    // Same code submitted again (auto-submit + Enter): don't burn it on a second, failing STS call.
+    if (this.inflight?.code === code) return this.inflight.promise;
+    await this.inflight?.promise;
+    this.update({ prompt: undefined, promptError: undefined, step: 'Verifying MFA…' });
     await this.fetch(code);
   }
 
   async afterPassphrase(): Promise<void> {
-    this.update({ prompt: undefined, promptError: undefined, step: '解锁 aws-vault…' });
+    this.update({ prompt: undefined, promptError: undefined, step: 'Unlocking aws-vault…' });
     await this.fetch();
   }
 
@@ -62,13 +69,26 @@ class EnvSession {
     else this.disconnect();
   }
 
-  private async fetch(mfaToken?: string): Promise<void> {
+  private fetch(mfaToken?: string): Promise<void> {
+    if (this.inflight) return this.inflight.promise;
+    const promise = this.doFetch(mfaToken).finally(() => {
+      if (this.inflight?.promise === promise) this.inflight = undefined;
+    });
+    this.inflight = { promise, code: mfaToken };
+    return promise;
+  }
+
+  private async doFetch(mfaToken?: string): Promise<void> {
+    const gen = this.generation;
     const b = this.m.binaries;
-    if (!b.awsVault) return this.fail('找不到 aws-vault，请安装或在设置里配置 awsVaultPath');
+    if (!b.awsVault) return this.fail('aws-vault not found. Install it or set awsVaultPath in settings.');
     const backend = await this.m.awsVaultBackend();
     // aws-vault's MFA prompt can't be captured on Windows, so without a cached session ask for the code up front.
     const profiles = [this.state.profile, this.state.sourceProfile].filter((p): p is string => !!p);
-    if (!mfaToken && !(await profileHasSession(b.awsVault, backend, profiles, effectivePath()))) return this.handle({ kind: 'need-mfa' }, false);
+    if (!mfaToken && !(await profileHasSession(b.awsVault, backend, profiles, effectivePath()))) {
+      if (gen === this.generation) await this.handle({ kind: 'need-mfa' }, false);
+      return;
+    }
     const r = await fetchCredentials({
       awsVault: b.awsVault,
       profile: this.state.profile,
@@ -78,7 +98,7 @@ class EnvSession {
       backend,
       path: effectivePath(),
     });
-    await this.handle(r, !!mfaToken);
+    if (gen === this.generation) await this.handle(r, !!mfaToken);
   }
 
   private async handle(r: FetchResult, triedMfa: boolean): Promise<void> {
@@ -96,15 +116,15 @@ class EnvSession {
         return;
       }
       case 'need-mfa':
-        return this.update(this.purpose === 'renew' && !triedMfa ? { renewNeedsMfa: true } : { prompt: 'mfa', step: '等待 MFA 验证码' });
+        return this.update(this.purpose === 'renew' && !triedMfa ? { renewNeedsMfa: true } : { prompt: 'mfa', step: 'Waiting for MFA code' });
       case 'need-passphrase':
         this.m.passphrase = undefined;
-        return this.update({ prompt: 'passphrase', step: '等待 aws-vault 密码' });
+        return this.update({ prompt: 'passphrase', step: 'Waiting for aws-vault password' });
       case 'error':
         if (triedMfa && MFA_ERROR.test(r.message)) return this.update({ prompt: 'mfa', promptError: r.message });
         if (this.state.status === 'ready') {
           // Keep radar running on the old credentials and try again shortly.
-          this.update({ message: `凭证续期失败：${r.message}` });
+          this.update({ message: `Credential renewal failed: ${r.message}` });
           this.renewTimer = setTimeout(() => this.silentRenew(), 60_000);
           return;
         }
@@ -126,14 +146,14 @@ class EnvSession {
 
   private async startRadar(): Promise<void> {
     const b = this.m.binaries;
-    if (!b.radar) return this.fail('找不到 radar（kubectl-radar），请安装或在设置里配置 radarPath');
-    this.update({ status: 'connecting', step: '启动 radar…' });
+    if (!b.radar) return this.fail('radar (kubectl-radar) not found. Install it or set radarPath in settings.');
+    this.update({ status: 'connecting', step: 'Starting radar…' });
 
     let kubeconfig: string;
     try {
       kubeconfig = this.m.writeEnvFiles(this.state);
     } catch (e) {
-      return this.fail(`生成 kubeconfig 失败：${(e as Error).message}`);
+      return this.fail(`Could not write kubeconfig: ${(e as Error).message}`);
     }
 
     const env = cleanAwsEnv(effectivePath());
@@ -162,13 +182,13 @@ class EnvSession {
       onExit: (code, log) => {
         if (this.radar !== radar) return;
         this.radar = undefined;
-        this.fail(`radar 意外退出（code ${code}）`, log.slice(-40));
+        this.fail(`radar exited unexpectedly (code ${code})`, log.slice(-40));
       },
     });
     this.radar = radar;
     try {
       await radar.start();
-      this.update({ step: '等待 radar 就绪…' });
+      this.update({ step: 'Waiting for radar…' });
       await radar.waitReady();
     } catch (e) {
       if (this.radar !== radar) return;
@@ -193,7 +213,7 @@ class EnvSession {
       const body = (await res.json()) as { state?: string; error?: string; errorType?: string };
       health = { state: body.state ?? 'unknown', error: body.error || undefined, errorType: body.errorType || undefined };
     } catch (e) {
-      health = { state: 'unknown', error: `无法读取 radar 连接状态：${(e as Error).message}` };
+      health = { state: 'unknown', error: `Could not read radar connection status: ${(e as Error).message}` };
     }
     if (this.radar !== radar) return;
     if (JSON.stringify(health) !== JSON.stringify(this.state.cluster)) this.update({ cluster: health });
@@ -210,6 +230,8 @@ class EnvSession {
   }
 
   disconnect(): void {
+    this.generation++;
+    this.inflight = undefined;
     clearTimeout(this.renewTimer);
     clearTimeout(this.healthTimer);
     this.radar?.stop();
@@ -261,7 +283,7 @@ export class EnvManager extends EventEmitter {
     try {
       this.settings = loadSettings(this.settingsPath);
     } catch (e) {
-      this.problems.push(`设置文件解析失败：${(e as Error).message}`);
+      this.problems.push(`Could not parse settings file: ${(e as Error).message}`);
       this.settings = {};
     }
     const s = this.settings;
@@ -270,23 +292,23 @@ export class EnvManager extends EventEmitter {
       radar: resolveBinary(s.radarPath, ['kubectl-radar', 'radar']),
       aws: which(['aws']),
     };
-    if (!this.binaries.awsVault) this.problems.push(s.awsVaultPath ? `awsVaultPath 不存在：${s.awsVaultPath}` : '没有找到 aws-vault');
-    if (!this.binaries.radar) this.problems.push(s.radarPath ? `radarPath 不存在：${s.radarPath}` : '没有找到 radar（kubectl-radar）');
-    if (!this.binaries.aws) this.problems.push('没有找到 aws CLI（EKS 的 kubeconfig 需要用它获取 token）');
+    if (!this.binaries.awsVault) this.problems.push(s.awsVaultPath ? `awsVaultPath does not exist: ${s.awsVaultPath}` : 'aws-vault not found');
+    if (!this.binaries.radar) this.problems.push(s.radarPath ? `radarPath does not exist: ${s.radarPath}` : 'radar (kubectl-radar) not found');
+    if (!this.binaries.aws) this.problems.push('AWS CLI not found (EKS kubeconfigs use it to get tokens)');
 
     let envs: EnvInfo[] = [];
     try {
       const awsCfg = awsConfigPath();
       const profiles = existsSync(awsCfg) ? parseAwsConfig(readFileSync(awsCfg, 'utf8')) : [];
-      if (!profiles.length) this.problems.push(`没有读到 AWS profile：${awsCfg}`);
+      if (!profiles.length) this.problems.push(`No AWS profiles found in ${awsCfg}`);
       const kubeFiles = kubeconfigPaths(s.kubeconfig).filter((f) => existsSync(f));
-      if (!kubeFiles.length) this.problems.push('没有找到 kubeconfig');
+      if (!kubeFiles.length) this.problems.push('No kubeconfig found');
       this.kube = mergeKubeConfigs(kubeFiles.map((f) => readFileSync(f, 'utf8')));
       envs = discoverEnvs(profiles, this.kube, s.envs);
       if (profiles.length && kubeFiles.length && !envs.length)
-        this.problems.push('没有匹配到任何环境：需要带 role_arn 的 AWS profile，且 kubeconfig 里有同账号的 EKS context（也可以在设置里手动指定 context）');
+        this.problems.push('No environments matched: each needs an AWS profile with role_arn and an EKS context for the same account in kubeconfig (or set the context in settings).');
     } catch (e) {
-      this.problems.push(`读取配置失败：${(e as Error).message}`);
+      this.problems.push(`Could not read config: ${(e as Error).message}`);
     }
 
     const next = new Map<string, EnvSession>();

@@ -1,6 +1,10 @@
 // Fake aws-vault for manually testing Radar Desktop without real AWS keys.
-// Supports: export --format=json [--mfa-token=CODE] PROFILE
-// First call without a cached session prompts for MFA on stderr; "000000" is rejected.
+// Supports:
+//
+//	list                                         - table like aws-vault list, with the cached session if any
+//	export --format=json [--mfa-token=CODE] PROFILE
+//
+// Without a cached session it needs a code; "000000" and any code used before are rejected (like STS).
 package main
 
 import (
@@ -14,7 +18,41 @@ import (
 	"time"
 )
 
+var (
+	sessionFile = filepath.Join(os.TempDir(), "fake-aws-vault-session")
+	usedFile    = filepath.Join(os.TempDir(), "fake-aws-vault-used")
+)
+
+const mfaError = "aws-vault: error: exec: Failed to get credentials for root: operation error STS: AssumeRole, api error AccessDenied: MultiFactorAuthentication failed with invalid MFA one time pass code."
+
+func sessionExpiry() (time.Time, bool) {
+	b, err := os.ReadFile(sessionFile)
+	if err != nil {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(b)))
+	return t, err == nil && time.Now().Before(t)
+}
+
+func list() {
+	fmt.Println("Profile                  Credentials              Sessions")
+	fmt.Println("=======                  ===========              ========")
+	sess := "-"
+	if t, ok := sessionExpiry(); ok {
+		d := time.Until(t).Round(time.Second)
+		sess = fmt.Sprintf("sts.AssumeRole:%dh%dm%ds", int(d.Hours()), int(d.Minutes())%60, int(d.Seconds())%60)
+	}
+	fmt.Printf("%-25s%-25s%s\n", "root", "root", sess)
+	for _, p := range []string{"dev", "sat", "prod"} {
+		fmt.Printf("%-25s%-25s%s\n", p, "-", sess)
+	}
+}
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "list" {
+		list()
+		return
+	}
 	var token, profile string
 	for _, a := range os.Args[1:] {
 		switch {
@@ -25,25 +63,22 @@ func main() {
 			profile = a
 		}
 	}
-	sessionFile := filepath.Join(os.TempDir(), "fake-aws-vault-session")
 	ttl := 3600
 	if v, err := strconv.Atoi(os.Getenv("FAKE_TTL_SECONDS")); err == nil {
 		ttl = v
 	}
-	valid := false
-	if b, err := os.ReadFile(sessionFile); err == nil {
-		if t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(b))); err == nil && time.Now().Before(t) {
-			valid = true
-		}
-	}
-	if !valid {
+	if _, valid := sessionExpiry(); !valid {
 		if token == "" {
 			fmt.Fprintf(os.Stderr, "Enter MFA code for arn:aws:iam::000000000000:mfa/fake: ")
 			line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 			token = strings.TrimSpace(line)
 		}
-		if token == "" || token == "000000" {
-			fmt.Fprintln(os.Stderr, "aws-vault: error: exec: Failed to get credentials for root: operation error STS: GetSessionToken, api error AccessDenied: MultiFactorAuthentication failed with invalid MFA one time pass code.")
+		used, _ := os.ReadFile(usedFile)
+		reused := token != "" && strings.Contains(string(used), token+"\n")
+		os.WriteFile(usedFile, append(used, []byte(token+"\n")...), 0600)
+		time.Sleep(1500 * time.Millisecond) // like a real STS round trip
+		if token == "" || token == "000000" || reused {
+			fmt.Fprintln(os.Stderr, mfaError)
 			os.Exit(1)
 		}
 		os.WriteFile(sessionFile, []byte(time.Now().Add(time.Duration(ttl)*time.Second).Format(time.RFC3339)), 0600)

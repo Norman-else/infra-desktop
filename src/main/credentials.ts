@@ -71,7 +71,7 @@ export function fetchCredentials(o: FetchOptions): Promise<FetchResult> {
     // (on Windows that prompt bypasses stderr), so ask the user instead of reporting an error.
     const onTimeout = (): FetchResult => {
       if (!o.mfaToken) return o.backend === 'file' && !o.passphrase ? { kind: 'need-passphrase' } : { kind: 'need-mfa' };
-      return { kind: 'error', message: `aws-vault 超时无响应\n${stderr}`.trim() };
+      return { kind: 'error', message: `aws-vault did not respond in time\n${stderr}`.trim() };
     };
     const timer = setTimeout(() => finish(onTimeout()), o.timeoutMs ?? (o.mfaToken ? 60_000 : 15_000));
 
@@ -81,7 +81,7 @@ export function fetchCredentials(o: FetchOptions): Promise<FetchResult> {
       if (!o.passphrase && PASSPHRASE_PROMPT.test(stderr)) finish({ kind: 'need-passphrase' });
       else if (!o.mfaToken && MFA_PROMPT.test(stderr)) finish({ kind: 'need-mfa' });
     });
-    child.on('error', (e) => finish({ kind: 'error', message: `无法运行 aws-vault: ${e.message}` }));
+    child.on('error', (e) => finish({ kind: 'error', message: `Could not run aws-vault: ${e.message}` }));
     child.on('close', (code) => {
       if (code === 0) {
         try {
@@ -89,7 +89,7 @@ export function fetchCredentials(o: FetchOptions): Promise<FetchResult> {
           if (!creds.AccessKeyId) throw new Error('missing AccessKeyId');
           return finish({ kind: 'ok', creds });
         } catch (e) {
-          return finish({ kind: 'error', message: `无法解析 aws-vault 输出: ${(e as Error).message}` });
+          return finish({ kind: 'error', message: `Could not parse aws-vault output: ${(e as Error).message}` });
         }
       }
       // Prompt text may arrive together with the failure (e.g. stdin closed), check once more.
@@ -166,8 +166,8 @@ export async function detectBackend(awsVault: string, path: string): Promise<str
 
 function explainAwsVaultError(msg: string): string {
   const missing = /profile (\S+): credentials missing/.exec(msg);
-  if (missing) return `${msg}\n\n本机 aws-vault 里没有 ${missing[1]} 的 access key，请先在终端运行：aws-vault add ${missing[1]}`;
-  if (/MultiFactorAuthentication failed|invalid MFA one time pass code/i.test(msg)) return `MFA 验证码错误或已使用过，请等下一个验证码。\n\n${msg}`;
+  if (missing) return `${msg}\n\naws-vault has no access key for ${missing[1]} on this machine. Add it in a terminal first: aws-vault add ${missing[1]}`;
+  if (/MultiFactorAuthentication failed|invalid MFA one time pass code/i.test(msg)) return `The MFA code was wrong or already used. Wait for the next code.\n\n${msg}`;
   return msg;
 }
 

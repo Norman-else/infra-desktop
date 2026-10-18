@@ -27,43 +27,43 @@ const shortcut = isMac ? '⇧⌘E' : 'Ctrl+Shift+E';
 function remaining(ms?: number): string | undefined {
   if (!ms) return undefined;
   const min = Math.round((ms - Date.now()) / 60_000);
-  if (min <= 0) return '已过期';
-  if (min < 60) return `${min} 分钟`;
-  return `${Math.floor(min / 60)} 小时 ${min % 60} 分钟`;
+  if (min <= 0) return 'expired';
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)} h ${min % 60} min`;
 }
 
 const ERROR_TYPES: Record<string, string> = {
-  'auth-rejected': '认证被拒绝',
-  unreachable: '集群不可达',
-  timeout: '连接超时',
-  forbidden: '没有权限',
+  'auth-rejected': 'authentication rejected',
+  unreachable: 'cluster unreachable',
+  timeout: 'timed out',
+  forbidden: 'forbidden',
 };
 
 function clusterText(e: EnvState): { text: string; cls: string } {
   const c = e.cluster;
-  if (!c) return { text: '集群状态检查中…', cls: '' };
-  if (c.state === 'connected') return { text: '● 集群已连接', cls: 'ok' };
-  if (c.state === 'connecting') return { text: '集群连接中…', cls: '' };
-  return { text: `⚠ 集群连接失败${c.errorType ? `：${ERROR_TYPES[c.errorType] ?? c.errorType}` : ''}`, cls: 'bad' };
+  if (!c) return { text: 'Checking cluster…', cls: '' };
+  if (c.state === 'connected') return { text: '● Cluster connected', cls: 'ok' };
+  if (c.state === 'connecting') return { text: 'Connecting to cluster…', cls: '' };
+  return { text: `⚠ Cluster connection failed${c.errorType ? `: ${ERROR_TYPES[c.errorType] ?? c.errorType}` : ''}`, cls: 'bad' };
 }
 
 function statusText(e: EnvState): { text: string; cls: string } {
-  if (e.prompt === 'mfa') return { text: '等待 MFA', cls: 'bad' };
-  if (e.prompt === 'passphrase') return { text: '等待密码', cls: 'bad' };
+  if (e.prompt === 'mfa') return { text: 'Waiting for MFA', cls: 'bad' };
+  if (e.prompt === 'passphrase') return { text: 'Waiting for password', cls: 'bad' };
   switch (e.status) {
     case 'ready': {
       const r = remaining(e.credsExpiresAt);
       const c = clusterText(e);
       if (c.cls === 'bad') return c;
-      return { text: e.renewNeedsMfa ? `需续期 · 剩 ${r}` : `运行中${r ? ` · 剩 ${r}` : ''}`, cls: e.renewNeedsMfa ? 'bad' : 'ok' };
+      return { text: e.renewNeedsMfa ? `Renewal needed · ${r} left` : `Running${r ? ` · ${r} left` : ''}`, cls: e.renewNeedsMfa ? 'bad' : 'ok' };
     }
     case 'checking':
     case 'connecting':
-      return { text: '连接中…', cls: '' };
+      return { text: 'Connecting…', cls: '' };
     case 'error':
-      return { text: '出错', cls: 'bad' };
+      return { text: 'Error', cls: 'bad' };
     default:
-      return { text: '未连接', cls: '' };
+      return { text: 'Not connected', cls: '' };
   }
 }
 
@@ -71,8 +71,8 @@ function statusText(e: EnvState): { text: string; cls: string } {
 
 function updateHtml(): string {
   const u = state.update;
-  if (u.status === 'ready') return `<button class="update-btn" data-act="install-update">⬆ 新版本 v${esc(u.version ?? '')} · 重启更新</button>`;
-  if (u.status === 'downloading') return `<span class="meta">⬇ 下载更新 ${u.progress ?? 0}%</span>`;
+  if (u.status === 'ready') return `<button class="update-btn" data-act="install-update">⬆ v${esc(u.version ?? '')} ready · Restart to update</button>`;
+  if (u.status === 'downloading') return `<span class="meta">⬇ Downloading update ${u.progress ?? 0}%</span>`;
   return '';
 }
 
@@ -80,8 +80,8 @@ function renderBar() {
   const e = activeEnv();
   bar.style.setProperty('--env', e ? e.color : '#50525a');
   if (!e) {
-    bar.innerHTML = `<span class="env-name">未连接</span><span class="cluster">选择一个环境</span><span class="spacer"></span>${updateHtml()}
-      <button class="switch-btn" data-act="menu">切换环境 ▾<span class="kbd">${shortcut}</span></button>`;
+    bar.innerHTML = `<span class="env-name">Not connected</span><span class="cluster">Choose an environment</span><span class="spacer"></span>${updateHtml()}
+      <button class="switch-btn" data-act="menu">Switch environment ▾<span class="kbd">${shortcut}</span></button>`;
     return;
   }
   const r = remaining(e.credsExpiresAt);
@@ -90,16 +90,16 @@ function renderBar() {
     // Cluster reachability first: valid AWS credentials don't mean radar can talk to the cluster.
     const c = clusterText(e);
     meta = `<span class="health ${c.cls}" title="${esc(e.cluster?.error ?? '')}">${esc(c.text)}</span>`;
-    if (r === '已过期') meta += `<button class="warn-btn" data-act="renew">⚠ AWS 凭证已过期 · 输入 MFA</button>`;
-    else if (e.renewNeedsMfa) meta += `<button class="warn-btn" data-act="renew">⚠ AWS 凭证 ${r}后过期 · 输入 MFA 续期</button>`;
-    else if (r) meta += `<span class="meta">AWS 凭证剩余 ${r}</span>`;
-    if (e.message) meta += `<span class="meta" title="${esc(e.message)}">⚠ 续期失败</span>`;
+    if (r === 'expired') meta += `<button class="warn-btn" data-act="renew">⚠ AWS credentials expired · Enter MFA</button>`;
+    else if (e.renewNeedsMfa) meta += `<button class="warn-btn" data-act="renew">⚠ AWS credentials expire in ${r} · Enter MFA to renew</button>`;
+    else if (r) meta += `<span class="meta">AWS credentials: ${r} left</span>`;
+    if (e.message) meta += `<span class="meta" title="${esc(e.message)}">⚠ Renewal failed</span>`;
   } else {
     meta = `<span class="meta">${esc(statusText(e).text)}</span>`;
   }
   bar.innerHTML = `<span class="env-name"><span class="pulse"></span>${esc(e.label)}</span>
     <span class="cluster">${esc(e.clusterName)}</span><span class="spacer"></span>${meta}${updateHtml()}
-    <button class="switch-btn" data-act="menu">切换环境 ${menuOpen ? '▴' : '▾'}<span class="kbd">${shortcut}</span></button>`;
+    <button class="switch-btn" data-act="menu">Switch environment ${menuOpen ? '▴' : '▾'}<span class="kbd">${shortcut}</span></button>`;
 }
 
 bar.addEventListener('click', (ev) => {
@@ -113,15 +113,15 @@ bar.addEventListener('click', (ev) => {
 
 function problemsHtml() {
   if (!state.problems.length) return '';
-  return `<div class="problems"><b>环境配置有问题</b><ul>${state.problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
-    <div class="actions"><button class="btn" data-act="settings">打开设置文件</button><button class="btn" data-act="reload">重新加载配置</button></div></div>`;
+  return `<div class="problems"><b>Setup problems</b><ul>${state.problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+    <div class="actions"><button class="btn" data-act="settings">Open settings file</button><button class="btn" data-act="reload">Reload config</button></div></div>`;
 }
 
 function renderBody() {
   const e = activeEnv();
   if (!e || e.status === 'idle') {
-    body.innerHTML = `<div class="center">${problemsHtml()}<h1>选择环境</h1>
-      <p class="sub">连接时会用 aws-vault 获取凭证（需要时输入 MFA），然后在这里打开 radar。</p>
+    body.innerHTML = `<div class="center">${problemsHtml()}<h1>Choose an environment</h1>
+      <p class="sub">Connecting gets credentials from aws-vault (asking for MFA when needed), then opens radar here.</p>
       <div class="env-cards">${state.envs
         .map(
           (x) => `<button class="env-card" style="--c:${x.color}" data-env="${esc(x.name)}"><div class="l">${esc(x.label)}</div>
@@ -131,16 +131,16 @@ function renderBody() {
     return;
   }
   if (e.status === 'error') {
-    body.innerHTML = `<div class="center error" style="--c:${e.color}"><h1>连接 ${esc(e.label)} 失败</h1>
-      <pre>${esc(e.message ?? '')}</pre>${e.logTail?.length ? `<p class="sub">radar 输出：</p><pre>${esc(e.logTail.join('\n'))}</pre>` : ''}
-      <div class="actions"><button class="btn primary" data-act="retry">重试</button><button class="btn" data-act="menu">切换环境</button>
-      <button class="btn" data-act="settings">打开设置文件</button></div></div>`;
+    body.innerHTML = `<div class="center error" style="--c:${e.color}"><h1>Could not connect to ${esc(e.label)}</h1>
+      <pre>${esc(e.message ?? '')}</pre>${e.logTail?.length ? `<p class="sub">radar output:</p><pre>${esc(e.logTail.join('\n'))}</pre>` : ''}
+      <div class="actions"><button class="btn primary" data-act="retry">Retry</button><button class="btn" data-act="menu">Switch environment</button>
+      <button class="btn" data-act="settings">Open settings file</button></div></div>`;
     return;
   }
   if (e.status === 'checking' || e.status === 'connecting') {
     body.innerHTML = `<div class="progress" style="--c:${e.color}"><div class="spinner"></div>
-      <div class="step">${esc(e.step ?? '连接中…')}</div><div class="hint">${esc(e.label)} · ${esc(e.clusterName)}</div>
-      <div class="actions" style="justify-content:center"><button class="btn" data-act="cancel">取消</button></div></div>`;
+      <div class="step">${esc(e.step ?? 'Connecting…')}</div><div class="hint">${esc(e.label)} · ${esc(e.clusterName)}</div>
+      <div class="actions" style="justify-content:center"><button class="btn" data-act="cancel">Cancel</button></div></div>`;
     return;
   }
   body.innerHTML = ''; // ready: radar view covers this area
@@ -173,48 +173,48 @@ function menuHtml() {
       const cur = e.name === state.active;
       return `<div class="row ${cur ? 'current' : ''} ${i === menuFocus ? 'focus' : ''}" style="--c:${e.color}" data-env="${esc(e.name)}">
         <span class="num">${i < 9 ? i + 1 : ''}</span><span class="sw"></span>
-        <span class="names"><b>${esc(e.label)}${cur ? ' · 当前' : ''}</b><small>${esc(e.clusterName)}</small></span>
+        <span class="names"><b>${esc(e.label)}${cur ? ' · current' : ''}</b><small>${esc(e.clusterName)}</small></span>
         <span class="st ${st.cls}">${esc(st.text)}</span>
-        ${e.status !== 'idle' ? `<button class="disc" data-disc="${esc(e.name)}" title="停止这个环境的 radar">断开</button>` : ''}</div>`;
+        ${e.status !== 'idle' ? `<button class="disc" data-disc="${esc(e.name)}" title="Stop radar for this environment">Disconnect</button>` : ''}</div>`;
     })
     .join('')}${state.problems.length ? `<div class="row" data-act="settings"><span class="st bad">⚠ ${esc(state.problems[0])}</span></div>` : ''}
-    <div class="foot"><button class="link" data-act="settings">打开设置文件</button><button class="link" data-act="reload">重新加载配置</button>
+    <div class="foot"><button class="link" data-act="settings">Open settings</button><button class="link" data-act="reload">Reload config</button>
     <span class="spacer"></span>${versionHtml()}</div></div>`;
 }
 
 function versionHtml(): string {
   const u = state.update;
   const label: Record<string, string> = {
-    disabled: '开发版',
-    checking: '检查更新中…',
-    latest: '已是最新',
-    downloading: `下载 v${u.version ?? ''} ${u.progress ?? 0}%`,
-    ready: `v${u.version ?? ''} 待安装`,
-    error: '检查更新失败',
+    disabled: 'dev build',
+    checking: 'checking for updates…',
+    latest: 'up to date',
+    downloading: `downloading v${u.version ?? ''} ${u.progress ?? 0}%`,
+    ready: `v${u.version ?? ''} ready to install`,
+    error: 'update check failed',
   };
   const st = label[u.status] ?? '';
   return `<span class="ver" title="${esc(u.error ?? '')}">v${esc(u.current)}${st ? ` · ${esc(st)}` : ''}</span>
-    ${u.status === 'disabled' ? '' : `<button class="link" data-act="check-update">检查更新</button>`}`;
+    ${u.status === 'disabled' ? '' : `<button class="link" data-act="check-update">Check for updates</button>`}`;
 }
 
 function promptHtml(e: EnvState) {
   const info = `<dl><dt>profile</dt><dd>${esc(e.profile)}</dd>${e.roleArn ? `<dt>role</dt><dd>${esc(e.roleArn)}</dd>` : ''}
-    <dt>集群</dt><dd>${esc(e.clusterName)}</dd></dl>`;
+    <dt>cluster</dt><dd>${esc(e.clusterName)}</dd></dl>`;
   const renewing = e.status === 'ready';
-  const title = renewing ? `续期 ${esc(e.label)} 凭证` : `切换到 ${esc(e.label)}`;
+  const title = renewing ? `Renew ${esc(e.label)} credentials` : `Switch to ${esc(e.label)}`;
   const err = e.promptError ? `<div class="err">${esc(e.promptError)}</div>` : '';
   if (e.prompt === 'passphrase') {
     return `<div class="modal-wrap"><form class="modal" style="--c:${e.color}" data-form="passphrase"><div class="head">${title}</div><div class="content">${info}
-      <label>aws-vault 密码（file backend）</label><input type="password" name="v" autofocus autocomplete="off" />${err}
-      <div class="note">只保存在本次运行的内存里。</div>
-      <div class="actions"><button class="btn primary" type="submit">解锁</button><button class="btn" type="button" data-act="cancel">取消</button></div></div></form></div>`;
+      <label>aws-vault password (file backend)</label><input type="password" name="v" autofocus autocomplete="off" />${err}
+      <div class="note">Kept in memory for this run only.</div>
+      <div class="actions"><button class="btn primary" type="submit">Unlock</button><button class="btn" type="button" data-act="cancel">Cancel</button></div></div></form></div>`;
   }
   return `<div class="modal-wrap"><form class="modal" style="--c:${e.color}" data-form="mfa"><div class="head">${title}</div><div class="content">${info}
-    <label>MFA 验证码</label><input name="v" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" autofocus />${err}
-    <div class="actions"><button class="btn primary" type="submit">连接</button><button class="btn" type="button" data-act="cancel">取消</button></div></div></form></div>`;
+    <label>MFA code</label><input name="v" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" autofocus />${err}
+    <div class="actions"><button class="btn primary" type="submit">Connect</button><button class="btn" type="button" data-act="cancel">Cancel</button></div></div></form></div>`;
 }
 
-/** The env whose prompt should be shown (only the active one; others show "等待 MFA" in the menu). */
+/** The env whose prompt should be shown (only the active one; others show "Waiting for MFA" in the menu). */
 const promptEnv = () => {
   const e = activeEnv();
   return e?.prompt ? e : undefined;
@@ -273,11 +273,23 @@ overlayContent.addEventListener('submit', (ev) => {
   const form = ev.target as HTMLFormElement;
   const value = (form.elements.namedItem('v') as HTMLInputElement).value.trim();
   const e = promptEnv();
-  if (!e || !value) return;
-  if (form.dataset.form === 'mfa') {
-    if (!/^\d{6}$/.test(value)) return;
-    void api.submitMfa(e.name, value);
-  } else void api.submitPassphrase(e.name, value);
+  // A code is single-use: auto-submit on the 6th digit plus Enter/click must not send it twice.
+  if (!e || !value || form.dataset.busy) return;
+  if (form.dataset.form === 'mfa' && !/^\d{6}$/.test(value)) return;
+  form.dataset.busy = '1';
+  const controls = form.querySelectorAll<HTMLInputElement | HTMLButtonElement>('input, button[type=submit]');
+  controls.forEach((c) => (c.disabled = true));
+  const done = form.dataset.form === 'mfa' ? api.submitMfa(e.name, value) : api.submitPassphrase(e.name, value);
+  // If the same prompt is still shown afterwards (e.g. wrong code), let the user try again.
+  void done.finally(() => {
+    delete form.dataset.busy;
+    controls.forEach((c) => (c.disabled = false));
+    const input = form.querySelector<HTMLInputElement>('input');
+    if (input && form.isConnected) {
+      input.value = '';
+      input.focus();
+    }
+  });
 });
 
 function pick(env: string) {

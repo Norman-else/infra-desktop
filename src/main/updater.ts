@@ -98,19 +98,19 @@ function macUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void):
     async check() {
       const res = await fetch(`https://github.com/${REPO}/releases/latest/download/latest-mac.yml`, { redirect: 'follow' });
       if (res.status === 404) return set({ status: 'latest' });
-      if (!res.ok) throw new Error(`检查更新失败：HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`Update check failed: HTTP ${res.status}`);
       const manifest = YAML.parse(await res.text()) as MacManifest;
       if (!isNewer(manifest.version, state.current)) return set({ status: 'latest' });
 
       const wantArm = process.arch === 'arm64';
       const file = manifest.files.find((f) => f.url.endsWith('.zip') && f.url.includes('arm64') === wantArm);
-      if (!file) throw new Error(`新版本 ${manifest.version} 没有 ${process.arch} 的 zip 包`);
+      if (!file) throw new Error(`Version ${manifest.version} has no ${process.arch} zip`);
 
       set({ status: 'downloading', version: manifest.version, progress: 0 });
       const dir = mkdtempSync(join(tmpdir(), 'radar-desktop-update-'));
       const zip = join(dir, 'update.zip');
       const dl = await fetch(`https://github.com/${REPO}/releases/download/v${manifest.version}/${encodeURIComponent(file.url)}`);
-      if (!dl.ok || !dl.body) throw new Error(`下载更新失败：HTTP ${dl.status}`);
+      if (!dl.ok || !dl.body) throw new Error(`Update download failed: HTTP ${dl.status}`);
       const total = Number(dl.headers.get('content-length')) || file.size || 0;
       let received = 0;
       let lastPct = -1;
@@ -126,11 +126,11 @@ function macUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void):
         }
       });
       await pipeline(body, createWriteStream(zip));
-      if (hash.digest('base64') !== file.sha512) throw new Error('更新包校验失败（sha512 不匹配）');
+      if (hash.digest('base64') !== file.sha512) throw new Error('Update failed verification (sha512 mismatch)');
 
       await run('/usr/bin/ditto', ['-x', '-k', zip, dir]);
       const extracted = join(dir, 'Radar Desktop.app');
-      if (!existsSync(extracted)) throw new Error('更新包里没有找到 Radar Desktop.app');
+      if (!existsSync(extracted)) throw new Error('Radar Desktop.app not found in the update');
       staged = extracted;
       set({ status: 'ready', progress: 100 });
     },
