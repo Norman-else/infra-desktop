@@ -62,7 +62,7 @@ describe('CredentialServer', () => {
       },
     });
     expect(JSON.parse(out).AccessKeyId).toBe('AKIDTEST');
-  });
+  }, 30_000); // the AWS CLI cold-starts slowly on CI Windows runners
 });
 
 describe('profilesWithKeys', () => {
