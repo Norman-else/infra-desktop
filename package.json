@@ -1,7 +1,7 @@
 {
   "name": "radar-desktop",
   "productName": "Radar Desktop",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Desktop wrapper for Radar: switch AWS environments with aws-vault + MFA and browse clusters in-app",
   "main": "dist/main.js",
   "private": true,
