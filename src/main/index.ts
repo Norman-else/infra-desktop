@@ -175,6 +175,8 @@ async function main() {
     minHeight: 600,
     title: 'Radar Desktop',
     backgroundColor: '#1b1c20',
+    // Windows/Linux: keep the menu (and its shortcuts) but only show it while Alt is pressed.
+    autoHideMenuBar: true,
     webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
   });
   win.on('resize', layout);

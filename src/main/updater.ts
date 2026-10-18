@@ -37,16 +37,19 @@ export function createUpdater(onChange: (s: UpdateState) => void): Updater {
     Object.assign(state, patch);
     onChange({ ...state });
   };
-  const impl = process.platform === 'darwin' ? macUpdater(state, set) : winUpdater(set);
+  const impl = process.platform === 'darwin' ? macUpdater(state, set) : winUpdater(state, set);
   const updater: Updater = {
     state,
     async check() {
-      if (!app.isPackaged || ['checking', 'downloading', 'ready'].includes(state.status)) return;
-      set({ status: 'checking', error: undefined });
+      if (!app.isPackaged || ['checking', 'downloading'].includes(state.status)) return;
+      // Keep checking after a download: if a newer release appeared meanwhile, fetch that instead,
+      // so the user always jumps straight to the latest version.
+      const wasReady = state.status === 'ready';
+      if (!wasReady) set({ status: 'checking', error: undefined });
       try {
         await impl.check();
       } catch (e) {
-        set({ status: 'error', error: (e as Error).message });
+        set({ status: wasReady ? 'ready' : 'error', error: (e as Error).message });
       }
     },
     install: () => impl.install(),
@@ -60,15 +63,23 @@ export function createUpdater(onChange: (s: UpdateState) => void): Updater {
 
 type Impl = { check(): Promise<void>; install(): void };
 
-function winUpdater(set: (p: Partial<UpdateState>) => void): Impl {
+function winUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void): Impl {
   // Loaded lazily: electron-updater touches app paths at import time.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { autoUpdater } = require('electron-updater') as typeof import('electron-updater');
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('update-available', (i) => set({ status: 'downloading', version: i.version, progress: 0 }));
-  autoUpdater.on('update-not-available', () => set({ status: 'latest' }));
-  autoUpdater.on('download-progress', (p) => set({ status: 'downloading', progress: Math.round(p.percent) }));
+  // Rechecking while an update is already downloaded reports that same version again; keep it as is.
+  const sameAsReady = (version: string) => state.status === 'ready' && state.version === version;
+  autoUpdater.on('update-available', (i) => {
+    if (!sameAsReady(i.version)) set({ status: 'downloading', version: i.version, progress: 0 });
+  });
+  autoUpdater.on('update-not-available', () => {
+    if (state.status !== 'ready') set({ status: 'latest' });
+  });
+  autoUpdater.on('download-progress', (p) => {
+    if (state.status === 'downloading') set({ progress: Math.round(p.percent) });
+  });
   autoUpdater.on('update-downloaded', (i) => set({ status: 'ready', version: i.version, progress: 100 }));
   autoUpdater.on('error', (e) => set({ status: 'error', error: e.message }));
   return {
@@ -100,7 +111,9 @@ function macUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void):
       if (res.status === 404) return set({ status: 'latest' });
       if (!res.ok) throw new Error(`Update check failed: HTTP ${res.status}`);
       const manifest = YAML.parse(await res.text()) as MacManifest;
-      if (!isNewer(manifest.version, state.current)) return set({ status: 'latest' });
+      // Compare with what's already downloaded, if anything, so a newer release replaces it.
+      const have = staged && state.version ? state.version : state.current;
+      if (!isNewer(manifest.version, have)) return set({ status: staged ? 'ready' : 'latest' });
 
       const wantArm = process.arch === 'arm64';
       const file = manifest.files.find((f) => f.url.endsWith('.zip') && f.url.includes('arm64') === wantArm);
