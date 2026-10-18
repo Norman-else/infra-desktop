@@ -14,6 +14,8 @@ const overlayContent = $('overlay-content');
 
 let state: AppState = { envs: [], active: null, problems: [], settingsPath: '', update: { status: 'disabled', current: '' } };
 let menuOpen = false;
+/** The ⚙ menu: settings, config reload, version and updates */
+let appMenuOpen = false;
 let menuFocus = 0;
 let overlayShown = false;
 let renderedOverlayKey = '';
@@ -76,12 +78,17 @@ function updateHtml(): string {
   return '';
 }
 
+function gearHtml(): string {
+  const dot = state.update.status === 'ready' || state.problems.length ? '<span class="dot"></span>' : '';
+  return `<button class="gear-btn ${appMenuOpen ? 'open' : ''}" data-act="app-menu" title="Settings and updates">⚙${dot}</button>`;
+}
+
 function renderBar() {
   const e = activeEnv();
   bar.style.setProperty('--env', e ? e.color : '#50525a');
   if (!e) {
     bar.innerHTML = `<span class="env-name">Not connected</span><span class="cluster">Choose an environment</span><span class="spacer"></span>${updateHtml()}
-      <button class="switch-btn" data-act="menu">Switch environment ▾<span class="kbd">${shortcut}</span></button>`;
+      <button class="switch-btn" data-act="menu">Switch environment ▾<span class="kbd">${shortcut}</span></button>${gearHtml()}`;
     return;
   }
   const r = remaining(e.credsExpiresAt);
@@ -99,12 +106,13 @@ function renderBar() {
   }
   bar.innerHTML = `<span class="env-name"><span class="pulse"></span>${esc(e.label)}</span>
     <span class="cluster">${esc(e.clusterName)}</span><span class="spacer"></span>${meta}${updateHtml()}
-    <button class="switch-btn" data-act="menu">Switch environment ${menuOpen ? '▴' : '▾'}<span class="kbd">${shortcut}</span></button>`;
+    <button class="switch-btn" data-act="menu">Switch environment ${menuOpen ? '▴' : '▾'}<span class="kbd">${shortcut}</span></button>${gearHtml()}`;
 }
 
 bar.addEventListener('click', (ev) => {
   const act = (ev.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act;
   if (act === 'menu') toggleMenu();
+  if (act === 'app-menu') toggleAppMenu();
   if (act === 'renew' && state.active) void api.renew(state.active);
   if (act === 'install-update') void api.installUpdate();
 });
@@ -162,7 +170,20 @@ body.addEventListener('click', (ev) => {
 
 function toggleMenu(force?: boolean) {
   menuOpen = force ?? !menuOpen;
+  if (menuOpen) appMenuOpen = false;
   menuFocus = Math.max(0, state.envs.findIndex((e) => e.name === state.active));
+  render();
+}
+
+function toggleAppMenu(force?: boolean) {
+  appMenuOpen = force ?? !appMenuOpen;
+  if (appMenuOpen) menuOpen = false;
+  render();
+}
+
+function closeMenus() {
+  menuOpen = false;
+  appMenuOpen = false;
   render();
 }
 
@@ -177,9 +198,23 @@ function menuHtml() {
         <span class="st ${st.cls}">${esc(st.text)}</span>
         ${e.status !== 'idle' ? `<button class="disc" data-disc="${esc(e.name)}" title="Stop radar for this environment">Disconnect</button>` : ''}</div>`;
     })
-    .join('')}${state.problems.length ? `<div class="row" data-act="settings"><span class="st bad">⚠ ${esc(state.problems[0])}</span></div>` : ''}
-    <div class="foot"><button class="link" data-act="settings">Open settings</button><button class="link" data-act="reload">Reload config</button>
-    <span class="spacer"></span>${versionHtml()}</div></div>`;
+    .join('')}</div>`;
+}
+
+function appMenuHtml() {
+  const u = state.update;
+  const canCheck = !['disabled', 'checking', 'downloading'].includes(u.status);
+  const problems = state.problems.length
+    ? `<div class="item warn" data-act="settings">⚠ ${esc(state.problems[0])}${state.problems.length > 1 ? ` (+${state.problems.length - 1} more)` : ''}</div>`
+    : '';
+  const install = u.status === 'ready' ? `<div class="item accent" data-act="install-update">⬆ Restart to update to v${esc(u.version ?? '')}</div>` : '';
+  return `<div class="menu app-menu">${problems}
+    <div class="item" data-act="settings">Open settings file</div>
+    <div class="item" data-act="reload">Reload config</div>
+    <div class="sep"></div>
+    ${install}
+    <div class="item ${canCheck ? '' : 'disabled'}" ${canCheck ? 'data-act="check-update"' : ''}>Check for updates</div>
+    <div class="ver-line" title="${esc(u.error ?? '')}">${versionHtml()}</div></div>`;
 }
 
 function versionHtml(): string {
@@ -193,8 +228,7 @@ function versionHtml(): string {
     error: 'update check failed',
   };
   const st = label[u.status] ?? '';
-  return `<span class="ver" title="${esc(u.error ?? '')}">v${esc(u.current)}${st ? ` · ${esc(st)}` : ''}</span>
-    ${u.status === 'disabled' ? '' : `<button class="link" data-act="check-update">Check for updates</button>`}`;
+  return `Radar Desktop v${esc(u.current)}${st ? ` · ${esc(st)}` : ''}`;
 }
 
 function promptHtml(e: EnvState) {
@@ -222,7 +256,7 @@ const promptEnv = () => {
 
 async function renderOverlay() {
   const pe = promptEnv();
-  const want = !!pe || menuOpen;
+  const want = !!pe || menuOpen || appMenuOpen;
   if (want && !overlayShown) {
     overlayShown = true;
     const shot = await api.openOverlay();
@@ -239,23 +273,28 @@ async function renderOverlay() {
   }
   if (!want) return;
   // Re-render only when the content changes, so typing in an input isn't wiped by state pushes.
-  const key = pe ? `prompt:${pe.name}:${pe.prompt}:${pe.promptError ?? ''}` : `menu:${menuFocus}:${JSON.stringify(state.envs.map(statusText))}:${state.active}:${JSON.stringify(state.update)}`;
+  const key = pe
+    ? `prompt:${pe.name}:${pe.prompt}:${pe.promptError ?? ''}`
+    : appMenuOpen
+      ? `app:${JSON.stringify(state.update)}:${state.problems.join('|')}`
+      : `menu:${menuFocus}:${JSON.stringify(state.envs.map(statusText))}:${state.active}`;
   if (key === renderedOverlayKey) return;
   renderedOverlayKey = key;
-  overlayContent.innerHTML = pe ? promptHtml(pe) : menuHtml();
+  overlayContent.innerHTML = pe ? promptHtml(pe) : appMenuOpen ? appMenuHtml() : menuHtml();
   overlayContent.querySelector<HTMLInputElement>('input')?.focus();
 }
 
 overlayContent.addEventListener('click', (ev) => {
   const t = ev.target as HTMLElement;
-  if (t === overlayContent) return toggleMenu(false);
+  if (t === overlayContent) return closeMenus();
   const disc = t.closest<HTMLElement>('[data-disc]')?.dataset.disc;
   if (disc) return void api.disconnect(disc);
   const act = t.closest<HTMLElement>('[data-act]')?.dataset.act;
   if (act === 'cancel') return void (state.active && api.cancel(state.active));
-  if (act === 'settings') return void api.openSettings();
-  if (act === 'reload') return void api.reloadConfig();
+  if (act === 'settings') return void (closeMenus(), api.openSettings());
+  if (act === 'reload') return void (closeMenus(), api.reloadConfig());
   if (act === 'check-update') return void api.checkUpdate();
+  if (act === 'install-update') return void api.installUpdate();
   const env = t.closest<HTMLElement>('[data-env]')?.dataset.env;
   if (env) pick(env);
 });
@@ -301,7 +340,7 @@ function pick(env: string) {
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') {
     if (promptEnv() && state.active) return void api.cancel(state.active);
-    if (menuOpen) return toggleMenu(false);
+    if (menuOpen || appMenuOpen) return closeMenus();
   }
   if (!menuOpen || promptEnv()) return;
   if (/^[1-9]$/.test(ev.key) && state.envs[Number(ev.key) - 1]) return pick(state.envs[Number(ev.key) - 1].name);

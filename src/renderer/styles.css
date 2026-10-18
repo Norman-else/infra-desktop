@@ -89,8 +89,18 @@ pre { background: #111215; border: 1px solid var(--line); border-radius: 8px; pa
 .menu .num { color: var(--muted); font-size: 11px; width: 12px; }
 .menu .disc { background: none; color: var(--muted); font-size: 11px; padding: 2px 6px; border: 1px solid var(--line); }
 .menu .disc:hover { color: #fff; border-color: #888; }
-.menu .foot .spacer { flex: 1; }
-.menu .foot .ver { color: var(--muted); }
+#bar .gear-btn { background: rgba(255, 255, 255, 0.18); width: 32px; height: 30px; font-size: 16px; line-height: 1; position: relative; padding: 0; }
+#bar .gear-btn:hover, #bar .gear-btn.open { background: rgba(255, 255, 255, 0.3); }
+#bar .gear-btn .dot { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35); }
+.app-menu { width: 280px; padding: 6px 0; }
+.app-menu .item { padding: 9px 16px; cursor: pointer; }
+.app-menu .item:hover { background: var(--panel-2); }
+.app-menu .item.disabled { color: var(--muted); cursor: default; }
+.app-menu .item.disabled:hover { background: none; }
+.app-menu .item.warn { color: #f3d6a4; font-size: 12px; }
+.app-menu .item.accent { color: #7bd88f; font-weight: 700; }
+.app-menu .sep { height: 1px; background: var(--line); margin: 6px 0; }
+.app-menu .ver-line { padding: 6px 16px 4px; color: var(--muted); font-size: 12px; }
 #bar .update-btn { background: #fff; color: #111; padding: 5px 10px; font-size: 12px; font-weight: 700; }
 #bar .update-btn:hover { background: #e8e8e8; }
 .menu .foot { display: flex; gap: 14px; padding: 10px 14px; font-size: 12px; }
