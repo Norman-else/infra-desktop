@@ -1,0 +1,7 @@
+node_modules/
+dist/
+release/
+.superpowers/
+test/fake-aws-vault/*.exe
+test/fake-aws-vault/fake-aws-vault
+release-*/
