@@ -68,3 +68,16 @@ describe('discoverEnvs', () => {
     expect(out.users[0].user.exec.command).toBe('aws');
   });
 });
+
+describe('ports', () => {
+  it('assigns 9281, 9282, … in list order and keeps configured ports', () => {
+    const envs = discoverEnvs(parseAwsConfig(awsConfig), mergeKubeConfigs([kubeYaml]), { sat: { port: 9282 }, prod: { port: 9500 } });
+    expect(envs.map((e) => [e.name, e.port])).toEqual([
+      ['dev', 9281],
+      ['sat', 9282],
+      ['prod', 9500],
+    ]);
+    const clash = discoverEnvs(parseAwsConfig(awsConfig), mergeKubeConfigs([kubeYaml]), { dev: { port: 9282 } });
+    expect(clash.map((e) => e.port)).toEqual([9282, 9281, 9283]);
+  });
+});

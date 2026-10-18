@@ -26,7 +26,7 @@ const TEMPLATE: Settings = {
   duration: '',
   radarArgs: [],
   envs: {
-    'example-profile': { context: 'my-kube-context', label: 'EXAMPLE', color: '#3d6fd6', hidden: false },
+    'example-profile': { context: 'my-kube-context', label: 'EXAMPLE', color: '#3d6fd6', hidden: false, port: 9290 },
   },
 };
 

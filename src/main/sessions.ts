@@ -202,6 +202,7 @@ class EnvSession {
       kubeconfig,
       env,
       extraArgs: this.m.settings.radarArgs ?? [],
+      port: this.state.port,
       onExit: (code, log) => {
         if (this.radar !== radar) return;
         this.radar = undefined;
@@ -270,8 +271,8 @@ class EnvSession {
 }
 
 function pickInfo(s: EnvState): EnvInfo {
-  const { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName } = s;
-  return { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName };
+  const { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName, port } = s;
+  return { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName, port };
 }
 
 export class EnvManager extends EventEmitter {

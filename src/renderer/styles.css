@@ -100,6 +100,11 @@ pre { background: #111215; border: 1px solid var(--line); border-radius: 8px; pa
 .app-menu .item.disabled:hover { background: none; }
 .app-menu .item.warn { color: #f3d6a4; font-size: 12px; }
 .app-menu .item.accent { color: #7bd88f; font-weight: 700; }
+.app-menu .label-line { padding: 6px 16px 4px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.app-menu .item.mcp { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.app-menu .item.mcp .sw { width: 9px; height: 9px; border-radius: 2px; background: var(--c); flex: none; }
+.app-menu .item.mcp b { width: 44px; flex: none; }
+.app-menu .item.mcp code { color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
 .app-menu .sep { height: 1px; background: var(--line); margin: 6px 0; }
 .app-menu .ver-line { padding: 6px 16px 4px; color: var(--muted); font-size: 12px; }
 #bar .update-btn { background: #fff; color: #111; padding: 5px 10px; font-size: 12px; font-weight: 700; }

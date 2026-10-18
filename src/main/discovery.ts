@@ -7,6 +7,8 @@ export interface EnvOverride {
   color?: string;
   label?: string;
   hidden?: boolean;
+  /** Fixed local port for this env's radar (its MCP server is at /mcp on the same port) */
+  port?: number;
 }
 
 export interface AwsProfile {
@@ -116,9 +118,27 @@ export function discoverEnvs(profiles: AwsProfile[], kube: KubeConfig, overrides
       region: p.region,
       context,
       clusterName: clusterDisplayName(kube, context),
+      port: o.port ?? 0,
     });
   }
-  return envs.sort((a, b) => riskRank(a.color) - riskRank(b.color) || a.name.localeCompare(b.name));
+  envs.sort((a, b) => riskRank(a.color) - riskRank(b.color) || a.name.localeCompare(b.name));
+  assignPorts(envs);
+  return envs;
+}
+
+/** First port handed out by default; 9280 (radar's own default) stays free for radar run from a terminal. */
+export const FIRST_PORT = 9281;
+
+/** Give envs without a configured port the next free one from FIRST_PORT, in list order (dev 9281, sat 9282, …). */
+export function assignPorts(envs: { port: number }[]): void {
+  const taken = new Set(envs.map((e) => e.port).filter(Boolean));
+  let next = FIRST_PORT;
+  for (const e of envs) {
+    if (e.port) continue;
+    while (taken.has(next)) next++;
+    e.port = next;
+    taken.add(next);
+  }
 }
 
 /** A kubeconfig containing only the env's context, so radar can't switch to a cluster these credentials don't cover. */

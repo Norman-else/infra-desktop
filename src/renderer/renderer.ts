@@ -212,7 +212,16 @@ function appMenuHtml() {
     ? `<div class="item warn" data-act="settings">⚠ ${esc(state.problems[0])}${state.problems.length > 1 ? ` (+${state.problems.length - 1} more)` : ''}</div>`
     : '';
   const install = u.status === 'ready' ? `<div class="item accent" data-act="install-update">⬆ Restart to update to v${esc(u.version ?? '')}</div>` : '';
-  return `<div class="menu app-menu">${problems}
+  const running = state.envs.filter((e) => e.status === 'ready');
+  const mcp = running.length
+    ? `<div class="label-line">MCP endpoints · click to copy</div>${running
+        .map((e) => {
+          const url = `http://127.0.0.1:${e.port}/mcp`;
+          return `<div class="item mcp" data-copy="${esc(url)}" style="--c:${e.color}"><span class="sw"></span><b>${esc(e.label)}</b><code>${esc(url)}</code></div>`;
+        })
+        .join('')}<div class="sep"></div>`
+    : '';
+  return `<div class="menu app-menu">${problems}${mcp}
     <div class="item" data-act="settings">Open settings file</div>
     <div class="item" data-act="reload">Reload config</div>
     <div class="sep"></div>
@@ -280,7 +289,7 @@ async function renderOverlay() {
   const key = pe
     ? `prompt:${pe.name}:${pe.prompt}:${pe.promptError ?? ''}`
     : appMenuOpen
-      ? `app:${JSON.stringify(state.update)}:${state.problems.join('|')}`
+      ? `app:${JSON.stringify(state.update)}:${state.problems.join('|')}:${state.envs.filter((e) => e.status === 'ready').map((e) => e.name + e.port).join()}`
       : `menu:${menuFocus}:${JSON.stringify(state.envs.map(statusText))}:${state.active}`;
   if (key === renderedOverlayKey) return;
   renderedOverlayKey = key;
@@ -291,6 +300,15 @@ async function renderOverlay() {
 overlayContent.addEventListener('click', (ev) => {
   const t = ev.target as HTMLElement;
   if (t === overlayContent) return closeMenus();
+  const copy = t.closest<HTMLElement>('[data-copy]');
+  if (copy) {
+    void navigator.clipboard.writeText(copy.dataset.copy!).then(() => {
+      const code = copy.querySelector('code');
+      if (code) code.textContent = 'Copied ✓';
+      setTimeout(() => code && (code.textContent = copy.dataset.copy!), 1200);
+    });
+    return;
+  }
   const disc = t.closest<HTMLElement>('[data-disc]')?.dataset.disc;
   if (disc) return void api.disconnect(disc);
   const act = t.closest<HTMLElement>('[data-act]')?.dataset.act;

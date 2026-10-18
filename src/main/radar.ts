@@ -1,6 +1,16 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type AddressInfo } from 'node:net';
 
+/** Whether 127.0.0.1:port can be bound right now. */
+export function portFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = createServer();
+    srv.unref();
+    srv.once('error', () => resolve(false));
+    srv.listen(port, '127.0.0.1', () => srv.close(() => resolve(true)));
+  });
+}
+
 export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
@@ -18,6 +28,8 @@ export interface RadarOptions {
   kubeconfig: string;
   env: NodeJS.ProcessEnv;
   extraArgs: string[];
+  /** Fixed port; a random free one when 0 */
+  port: number;
   onExit: (code: number | null, log: string[]) => void;
 }
 
@@ -34,7 +46,9 @@ export class RadarProcess {
   }
 
   async start(): Promise<void> {
-    this.port = await freePort();
+    if (this.o.port && !(await portFree(this.o.port)))
+      throw new Error(`Port ${this.o.port} is already in use (is radar already running in a terminal?). Stop it or set a different "port" for this environment in settings.`);
+    this.port = this.o.port || (await freePort());
     const args = ['-no-browser', '-listen-address', '127.0.0.1', '-port', String(this.port), '-kubeconfig', this.o.kubeconfig, ...this.o.extraArgs];
     this.child = spawn(this.o.radarPath, args, { env: this.o.env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const push = (d: Buffer) => {

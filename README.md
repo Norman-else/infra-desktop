@@ -75,12 +75,14 @@ xattr -cr "/Applications/Radar Desktop.app"
   "duration": "",            // 传给 aws-vault --duration；要和终端里用的一致（例如 "8h"），才能复用已缓存的会话
   "radarArgs": [],           // 额外的 radar 参数
   "envs": {
-    "prod": { "label": "PROD", "color": "#c62828", "context": "acme-prod", "hidden": false }
+    "prod": { "label": "PROD", "color": "#c62828", "context": "acme-prod", "hidden": false, "port": 9283 }
   }
 }
 ```
 
 改完点「重新加载配置」。
+
+每个环境的 radar 固定端口：默认按列表顺序 dev 9281、sat 9282、prod 9283（9280 留给终端里直接运行的 radar），可用 `envs.<profile>.port` 修改。radar 的 MCP 在同一端口的 `/mcp`，例如 `http://127.0.0.1:9281/mcp`；⚙ 菜单里列出了运行中环境的 MCP 地址，点击即可复制。
 
 - aws-vault 用 `file` backend 时，应用会弹窗要密码，密码只保存在本次运行的内存里。
 - macOS 上应用会从登录 shell 读取 `PATH`、`KUBECONFIG`、`AWS_VAULT_*` 这些变量，所以 `~/.zshrc` 里的设置也会生效。

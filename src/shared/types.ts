@@ -22,6 +22,8 @@ export interface EnvInfo {
   region?: string;
   context: string;
   clusterName: string;
+  /** Fixed local port for radar (UI and MCP at /mcp) */
+  port: number;
 }
 
 export interface EnvState extends EnvInfo {
