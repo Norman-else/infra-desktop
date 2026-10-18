@@ -2,6 +2,7 @@
 // Supports:
 //
 //	list                                         - table like aws-vault list, with the cached session if any
+//	clear PROFILE                                - drop the cached session
 //	export --format=json [--mfa-token=CODE] PROFILE
 //
 // Without a cached session it needs a code; "000000" and any code used before are rejected (like STS).
@@ -53,6 +54,10 @@ func main() {
 		list()
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "clear" {
+		os.Remove(sessionFile)
+		return
+	}
 	var token, profile string
 	for _, a := range os.Args[1:] {
 		switch {
@@ -67,7 +72,8 @@ func main() {
 	if v, err := strconv.Atoi(os.Getenv("FAKE_TTL_SECONDS")); err == nil {
 		ttl = v
 	}
-	if _, valid := sessionExpiry(); !valid {
+	expiry, valid := sessionExpiry()
+	if !valid {
 		if token == "" {
 			fmt.Fprintf(os.Stderr, "Enter MFA code for arn:aws:iam::000000000000:mfa/fake: ")
 			line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
@@ -81,10 +87,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, mfaError)
 			os.Exit(1)
 		}
-		os.WriteFile(sessionFile, []byte(time.Now().Add(time.Duration(ttl)*time.Second).Format(time.RFC3339)), 0600)
+		expiry = time.Now().Add(time.Duration(ttl) * time.Second)
+		os.WriteFile(sessionFile, []byte(expiry.Format(time.RFC3339)), 0600)
 	}
 	json.NewEncoder(os.Stdout).Encode(map[string]any{
 		"Version": 1, "AccessKeyId": "ASIAFAKE" + strings.ToUpper(profile), "SecretAccessKey": "fakesecret",
-		"SessionToken": "faketoken", "Expiration": time.Now().Add(time.Duration(ttl) * time.Second).UTC().Format(time.RFC3339),
+		"SessionToken": "faketoken", "Expiration": expiry.UTC().Format(time.RFC3339), // cached credentials keep their original expiry
 	})
 }

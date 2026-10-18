@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppState, ClusterHealth, EnvInfo, EnvState, UpdateState } from '../shared/types';
-import { CredentialServer, cleanAwsEnv, detectBackend, fetchCredentials, profileHasSession, type FetchResult } from './credentials';
+import { CredentialServer, cleanAwsEnv, clearSessions, detectBackend, fetchCredentials, profileHasSession, type FetchResult } from './credentials';
 import { discoverEnvs, mergeKubeConfigs, parseAwsConfig, singleContextKubeConfig, type KubeConfig } from './discovery';
 import { awsConfigPath, effectivePath, kubeconfigPaths, resolveBinary, which } from './paths';
 import { RadarProcess } from './radar';
@@ -10,7 +10,8 @@ import { loadSettings, type Settings } from './settings';
 
 type Purpose = 'connect' | 'renew';
 
-const RENEW_BEFORE_MS = 5 * 60_000;
+/** Start renewing this long before credentials expire, so there's time to answer an MFA prompt. */
+const RENEW_BEFORE_MS = 15 * 60_000;
 const MFA_ERROR = /MFA|one time pass code|MultiFactor|AccessDenied/i;
 
 class EnvSession {
@@ -19,6 +20,7 @@ class EnvSession {
   private purpose: Purpose = 'connect';
   private renewTimer?: NodeJS.Timeout;
   private healthTimer?: NodeJS.Timeout;
+  private expiryTimer?: NodeJS.Timeout;
   private cred?: { uri: string; token: string };
   /** The aws-vault call in progress; only one at a time, since an MFA code is single-use. */
   private inflight?: { promise: Promise<void>; code?: string };
@@ -89,6 +91,7 @@ class EnvSession {
       if (gen === this.generation) await this.handle({ kind: 'need-mfa' }, false);
       return;
     }
+    if (mfaToken && this.purpose === 'renew') await clearSessions(b.awsVault, backend, profiles, effectivePath());
     const r = await fetchCredentials({
       awsVault: b.awsVault,
       profile: this.state.profile,
@@ -107,6 +110,12 @@ class EnvSession {
     switch (r.kind) {
       case 'ok': {
         const expires = Date.parse(r.creds.Expiration);
+        // Silent renewal got the same cached credentials back: they can't be extended without MFA.
+        const extended = !this.state.credsExpiresAt || expires > this.state.credsExpiresAt + 60_000;
+        if (this.purpose === 'renew' && !extended) {
+          if (triedMfa) return this.update({ prompt: 'mfa', promptError: 'aws-vault returned the same credentials. Try again with the next MFA code.' });
+          return this.needRenewal();
+        }
         this.cred ??= this.m.credServer.register(this.state.name);
         this.m.credServer.set(this.state.name, r.creds);
         this.update({ credsExpiresAt: expires, renewNeedsMfa: false, message: undefined });
@@ -116,7 +125,8 @@ class EnvSession {
         return;
       }
       case 'need-mfa':
-        return this.update(this.purpose === 'renew' && !triedMfa ? { renewNeedsMfa: true } : { prompt: 'mfa', step: 'Waiting for MFA code' });
+        if (this.purpose === 'renew' && !triedMfa) return this.needRenewal();
+        return this.update({ prompt: 'mfa', step: 'Waiting for MFA code' });
       case 'need-passphrase':
         this.m.passphrase = undefined;
         return this.update({ prompt: 'passphrase', step: 'Waiting for aws-vault password' });
@@ -134,8 +144,21 @@ class EnvSession {
 
   private scheduleRenew(expires: number) {
     clearTimeout(this.renewTimer);
+    clearTimeout(this.expiryTimer);
     const delay = Math.max(expires - RENEW_BEFORE_MS - Date.now(), 60_000);
     this.renewTimer = setTimeout(() => this.silentRenew(), delay);
+    this.expiryTimer = setTimeout(() => {
+      if (this.state.status !== 'ready') return;
+      this.m.emit('expired', this.state.name);
+      this.m.emitState();
+    }, Math.max(expires - Date.now(), 0));
+  }
+
+  /** Silent renewal isn't possible; ask the user (once) to enter MFA before the credentials expire. */
+  private needRenewal() {
+    const first = !this.state.renewNeedsMfa;
+    this.update({ renewNeedsMfa: true });
+    if (first) this.m.emit('renew-needed', this.state.name);
   }
 
   private async silentRenew() {
@@ -222,6 +245,7 @@ class EnvSession {
 
   private fail(message: string, logTail?: string[]) {
     clearTimeout(this.renewTimer);
+    clearTimeout(this.expiryTimer);
     clearTimeout(this.healthTimer);
     this.radar?.stop();
     this.radar = undefined;
@@ -230,6 +254,7 @@ class EnvSession {
   }
 
   disconnect(): void {
+    clearTimeout(this.expiryTimer);
     this.generation++;
     this.inflight = undefined;
     clearTimeout(this.renewTimer);

@@ -146,6 +146,26 @@ function awsVaultList(awsVault: string, backend: string | undefined, path: strin
 
 const listKeys = async (awsVault: string, backend: string, path: string) => profilesWithKeys(await awsVaultList(awsVault, backend, path));
 
+/**
+ * Drop aws-vault's cached sessions for these profiles. Needed before an MFA renewal: otherwise aws-vault
+ * ignores the new code and hands back the cached credentials that are about to expire.
+ */
+export async function clearSessions(awsVault: string, backend: string | undefined, profiles: string[], path: string): Promise<void> {
+  const env = cleanAwsEnv(path);
+  if (backend) env.AWS_VAULT_BACKEND = backend;
+  for (const profile of profiles) {
+    await new Promise<void>((resolve) => {
+      const child = spawn(awsVault, ['clear', profile], { env, windowsHide: true, stdio: 'ignore' });
+      const timer = setTimeout(() => child.kill(), 15_000);
+      child.on('error', () => resolve());
+      child.on('close', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+}
+
 /** Ask aws-vault whether a profile can be exported without MFA right now. */
 export async function profileHasSession(awsVault: string, backend: string | undefined, profiles: string[], path: string): Promise<boolean> {
   return hasCachedSession(await awsVaultList(awsVault, backend, path), profiles);

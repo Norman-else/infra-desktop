@@ -49,14 +49,18 @@ function clusterText(e: EnvState): { text: string; cls: string } {
   return { text: `⚠ Cluster connection failed${c.errorType ? `: ${ERROR_TYPES[c.errorType] ?? c.errorType}` : ''}`, cls: 'bad' };
 }
 
-function statusText(e: EnvState): { text: string; cls: string } {
+/** Short status for the menu and cards; `title` holds the full text for a tooltip. */
+function statusText(e: EnvState): { text: string; cls: string; title?: string } {
   if (e.prompt === 'mfa') return { text: 'Waiting for MFA', cls: 'bad' };
   if (e.prompt === 'passphrase') return { text: 'Waiting for password', cls: 'bad' };
   switch (e.status) {
     case 'ready': {
       const r = remaining(e.credsExpiresAt);
       const c = clusterText(e);
-      if (c.cls === 'bad') return c;
+      if (c.cls === 'bad') {
+        const t = e.cluster?.errorType;
+        return { text: `⚠ ${t === 'auth-rejected' ? 'Auth rejected' : t ? (ERROR_TYPES[t] ?? t) : 'Cluster error'}`, cls: 'bad', title: c.text };
+      }
       return { text: e.renewNeedsMfa ? `Renewal needed · ${r} left` : `Running${r ? ` · ${r} left` : ''}`, cls: e.renewNeedsMfa ? 'bad' : 'ok' };
     }
     case 'checking':
@@ -195,7 +199,7 @@ function menuHtml() {
       return `<div class="row ${cur ? 'current' : ''} ${i === menuFocus ? 'focus' : ''}" style="--c:${e.color}" data-env="${esc(e.name)}">
         <span class="num">${i < 9 ? i + 1 : ''}</span><span class="sw"></span>
         <span class="names"><b>${esc(e.label)}${cur ? ' · current' : ''}</b><small>${esc(e.clusterName)}</small></span>
-        <span class="st ${st.cls}">${esc(st.text)}</span>
+        <span class="st ${st.cls}" title="${esc(st.title ?? st.text)}">${esc(st.text)}</span>
         ${e.status !== 'idle' ? `<button class="disc" data-disc="${esc(e.name)}" title="Stop radar for this environment">Disconnect</button>` : ''}</div>`;
     })
     .join('')}</div>`;

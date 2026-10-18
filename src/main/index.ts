@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, shell, WebContentsView, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, Notification, shell, WebContentsView, type MenuItemConstructorOptions } from 'electron';
 import { join } from 'node:path';
 import { importLoginShellEnv } from './paths';
 import { EnvManager } from './sessions';
@@ -63,6 +63,25 @@ function updateTitle() {
   if (!win || win.isDestroyed()) return;
   const env = manager.getState().envs.find((e) => e.name === manager.active);
   win.setTitle(env ? `${env.label} · ${env.clusterName} — Radar Desktop` : 'Radar Desktop');
+}
+
+/** Desktop notification for an env whose credentials need MFA; clicking it opens the MFA prompt there. */
+function notifyRenewal(name: string, expired: boolean) {
+  const env = manager.getState().envs.find((e) => e.name === name);
+  if (!env || !Notification.isSupported()) return;
+  const left = env.credsExpiresAt ? Math.max(0, Math.round((env.credsExpiresAt - Date.now()) / 60_000)) : 0;
+  const n = new Notification({
+    title: expired ? `${env.label}: AWS credentials expired` : `${env.label}: AWS credentials expire in ${left} min`,
+    body: 'Click to enter an MFA code and renew without restarting radar.',
+  });
+  n.on('click', () => {
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    void manager.switchTo(name).then(() => manager.session(name).renew());
+  });
+  n.show();
 }
 
 function sendCommand(cmd: string) {
@@ -139,6 +158,8 @@ async function main() {
     app.quit();
     return;
   }
+  // Windows shows notifications only for apps with an AppUserModelID (matches electron-builder's appId).
+  if (process.platform === 'win32') app.setAppUserModelId('io.radar.desktop');
   await app.whenReady();
   await importLoginShellEnv();
 
@@ -158,6 +179,8 @@ async function main() {
     layout();
   });
   manager.on('activate', () => layout());
+  manager.on('renew-needed', (name: string) => notifyRenewal(name, false));
+  manager.on('expired', (name: string) => notifyRenewal(name, true));
 
   registerIpc();
   buildMenu();
