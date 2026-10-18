@@ -10,11 +10,15 @@ import YAML from 'yaml';
 import type { UpdateState } from '../shared/types';
 
 const REPO = 'Norman-else/radar-desktop';
-const CHECK_INTERVAL_MS = 4 * 60 * 60_000;
+const CHECK_INTERVAL_MS = 30 * 60_000;
+/** A focus-triggered check runs only if the last one is at least this old. */
+const FOCUS_CHECK_AFTER_MS = 10 * 60_000;
 
 export interface Updater {
   state: UpdateState;
   check(): Promise<void>;
+  /** Check unless one ran recently (used when the window gets focus). */
+  checkIfStale(): void;
   install(): void;
 }
 
@@ -37,11 +41,13 @@ export function createUpdater(onChange: (s: UpdateState) => void): Updater {
     Object.assign(state, patch);
     onChange({ ...state });
   };
+  let lastCheck = 0;
   const impl = process.platform === 'darwin' ? macUpdater(state, set) : winUpdater(state, set);
   const updater: Updater = {
     state,
     async check() {
       if (!app.isPackaged || ['checking', 'downloading'].includes(state.status)) return;
+      lastCheck = Date.now();
       // Keep checking after a download: if a newer release appeared meanwhile, fetch that instead,
       // so the user always jumps straight to the latest version.
       const wasReady = state.status === 'ready';
@@ -51,6 +57,9 @@ export function createUpdater(onChange: (s: UpdateState) => void): Updater {
       } catch (e) {
         set({ status: wasReady ? 'ready' : 'error', error: (e as Error).message });
       }
+    },
+    checkIfStale() {
+      if (Date.now() - lastCheck >= FOCUS_CHECK_AFTER_MS) void updater.check();
     },
     install: () => impl.install(),
   };

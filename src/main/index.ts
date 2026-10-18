@@ -203,6 +203,7 @@ async function main() {
     webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
   });
   win.on('resize', layout);
+  win.on('focus', () => updater?.checkIfStale());
   win.on('closed', () => (win = undefined));
   await win.loadFile(join(__dirname, 'renderer', 'index.html'));
 
