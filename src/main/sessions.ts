@@ -198,7 +198,7 @@ class EnvSession {
     }
 
     const radar = new RadarProcess({
-      radarPath: b.radar,
+      command: [b.radar],
       kubeconfig,
       env,
       extraArgs: this.m.settings.radarArgs ?? [],

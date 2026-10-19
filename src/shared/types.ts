@@ -3,6 +3,29 @@ export type EnvStatus = 'idle' | 'checking' | 'connecting' | 'ready' | 'error';
 /** Input the env is waiting for from the user (first connect, or renewing credentials of a running env) */
 export type EnvPrompt = 'mfa' | 'passphrase';
 
+export type ToolKind = 'radar' | 'vault';
+
+/** Short, user-facing health of a running tool; `detail` is the full reason (tooltip). */
+export interface ToolHealth {
+  state: 'ok' | 'pending' | 'failed';
+  text: string;
+  detail?: string;
+}
+
+export interface ToolState {
+  status: 'stopped' | 'starting' | 'ready' | 'error';
+  step?: string;
+  message?: string;
+  logTail?: string[];
+  health?: ToolHealth;
+  url?: string;
+}
+
+export interface ToolAvailability {
+  available: boolean;
+  reason?: string;
+}
+
 export interface ClusterHealth {
   /** radar's state, e.g. connected / connecting / disconnected; 'unknown' when radar didn't answer */
   state: string;

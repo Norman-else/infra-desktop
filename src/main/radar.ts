@@ -24,7 +24,8 @@ export function freePort(): Promise<number> {
 }
 
 export interface RadarOptions {
-  radarPath: string;
+  /** Executable followed by any leading arguments, e.g. [radarPath] */
+  command: string[];
   kubeconfig: string;
   env: NodeJS.ProcessEnv;
   extraArgs: string[];
@@ -50,7 +51,7 @@ export class RadarProcess {
       throw new Error(`Port ${this.o.port} is already in use (is radar already running in a terminal?). Stop it or set a different "port" for this environment in settings.`);
     this.port = this.o.port || (await freePort());
     const args = ['-no-browser', '-listen-address', '127.0.0.1', '-port', String(this.port), '-kubeconfig', this.o.kubeconfig, ...this.o.extraArgs];
-    this.child = spawn(this.o.radarPath, args, { env: this.o.env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    this.child = spawn(this.o.command[0], [...this.o.command.slice(1), ...args], { env: this.o.env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const push = (d: Buffer) => {
       for (const line of d.toString().split(/\r?\n/)) if (line.trim()) this.log.push(line);
       if (this.log.length > 300) this.log.splice(0, this.log.length - 300);
