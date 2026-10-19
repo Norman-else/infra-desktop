@@ -179,6 +179,7 @@ async function main() {
     layout();
   });
   manager.on('activate', () => layout());
+  manager.on('reload-view', (name: string) => views.get(name)?.webContents.reload());
   manager.on('renew-needed', (name: string) => notifyRenewal(name, false));
   manager.on('expired', (name: string) => notifyRenewal(name, true));
 

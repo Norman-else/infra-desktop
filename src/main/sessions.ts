@@ -121,7 +121,7 @@ class EnvSession {
         this.update({ credsExpiresAt: expires, renewNeedsMfa: false, message: undefined });
         this.scheduleRenew(expires);
         if (this.purpose === 'connect' && !this.radar) await this.startRadar();
-        else void this.checkHealth();
+        else void this.reconnectRadar();
         return;
       }
       case 'need-mfa':
@@ -224,6 +224,26 @@ class EnvSession {
     this.update({ status: 'ready', step: undefined });
     this.m.emit('ready', this.state.name);
     await this.checkHealth();
+  }
+
+/**
+   * After new credentials, make radar retry right away if it lost the cluster (e.g. they had expired):
+   * radar's own background re-check can take a long time, and its page waits for that.
+   */
+  private async reconnectRadar(): Promise<void> {
+    const radar = this.radar;
+    const wasDown = !!this.state.cluster && this.state.cluster.state !== 'connected';
+    if (radar && wasDown) {
+      this.update({ cluster: { state: 'connecting' } });
+      try {
+        await fetch(`${radar.url}api/connection/retry`, { method: 'POST', signal: AbortSignal.timeout(30_000) });
+      } catch {
+        /* the health check below reports the outcome */
+      }
+    }
+    await this.checkHealth();
+    // Its page may still show the error screen; reload it once the cluster is back.
+    if (wasDown && this.state.cluster?.state === 'connected') this.m.emit('reload-view', this.state.name);
   }
 
   /** Ask radar whether it can actually reach the cluster; credentials being valid doesn't mean it can. */
