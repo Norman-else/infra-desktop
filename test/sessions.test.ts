@@ -121,4 +121,29 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
     expect(made['vault:dev'].stops).toBeGreaterThan(0);
     expect(env().status).toBe('idle');
   });
+
+  it('switching tool starts it for the active env', async () => {
+    await connectWithMfa();
+    await manager.setTool('vault');
+    expect(manager.activeTool).toBe('vault');
+    expect(made['vault:dev'].starts).toBe(1);
+    expect(manager.getState().activeTool).toBe('vault');
+  });
+
+  it('switching env keeps the active tool', async () => {
+    await connectWithMfa();
+    await manager.setTool('vault');
+    manager.session('dev').disconnect();
+    await manager.switchTo('dev');
+    expect(manager.activeTool).toBe('vault');
+  });
+});
+
+describe('EnvManager default tools', () => {
+  it('ignores switching to an unavailable tool', async () => {
+    const m = new EnvManager(mkdtempSync(join(tmpdir(), 'sessions-default-')));
+    await m.setTool('vault');
+    expect(m.activeTool).toBe('radar');
+    expect(m.availability('vault')).toEqual({ available: false, reason: 'Vault support is coming in a later version.' });
+  });
 });

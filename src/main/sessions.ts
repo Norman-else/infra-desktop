@@ -398,6 +398,15 @@ export class EnvManager extends EventEmitter {
     await s.ensureTool(this.activeTool);
   }
 
+  /** Show another tool; ignored when this build can't run it. */
+  async setTool(kind: ToolKind): Promise<void> {
+    if (!this.availability(kind).available) return;
+    this.activeTool = kind;
+    this.emitState();
+    this.emit('activate', this.active);
+    if (this.active) await this.session(this.active).ensureTool(kind);
+  }
+
   async submitPassphrase(name: string, passphrase: string): Promise<void> {
     this.passphrase = passphrase;
     await this.session(name).afterPassphrase();

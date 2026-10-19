@@ -2,56 +2,67 @@ import { app, BrowserWindow, ipcMain, Menu, Notification, shell, WebContentsView
 import { join } from 'node:path';
 import { migrateUserData } from './migrate';
 import { importLoginShellEnv } from './paths';
+import type { ToolKind } from '../shared/types';
 import { EnvManager } from './sessions';
 import { createUpdater, type Updater } from './updater';
 
-/** Height of the environment bar drawn by the renderer; radar is shown below it. */
+/** Height of the environment bar drawn by the renderer; the tool's page is shown below it. */
 const BAR_HEIGHT = 44;
 
 let win: BrowserWindow | undefined;
 let manager: EnvManager;
+/** One view per environment and tool, keyed by viewKey(). */
 const views = new Map<string, WebContentsView>();
+const viewKey = (env: string, tool: ToolKind) => `${env}:${tool}`;
+const activeKey = () => (manager.active ? viewKey(manager.active, manager.activeTool) : undefined);
+const activeView = () => {
+  const key = activeKey();
+  return key ? views.get(key) : undefined;
+};
 let overlayOpen = false;
 let updater: Updater | undefined;
 
-const isRadarUrl = (url: string) => /^http:\/\/127\.0\.0\.1:\d+\//.test(url);
+const isLocalUrl = (url: string) => /^http:\/\/127\.0\.0\.1:\d+\//.test(url);
 
-function createView(name: string, url: string): WebContentsView {
+function createView(env: string, tool: ToolKind, url: string): WebContentsView {
   const view = new WebContentsView({
-    webPreferences: { partition: `persist:radar-${name}`, sandbox: true, contextIsolation: true },
+    // radar keeps its pre-0.3 partition name, so existing cookies survive.
+    webPreferences: { partition: `persist:${tool}-${env}`, sandbox: true, contextIsolation: true },
   });
   const wc = view.webContents;
   wc.setWindowOpenHandler(({ url: target }) => {
-    if (isRadarUrl(target)) return { action: 'allow' };
+    if (isLocalUrl(target)) return { action: 'allow' };
     void shell.openExternal(target);
     return { action: 'deny' };
   });
   wc.on('will-navigate', (e, target) => {
-    if (!isRadarUrl(target)) {
+    if (!isLocalUrl(target)) {
       e.preventDefault();
       void shell.openExternal(target);
     }
   });
   void wc.loadURL(url);
-  views.set(name, view);
+  views.set(viewKey(env, tool), view);
   return view;
 }
 
-function destroyView(name: string) {
-  const view = views.get(name);
-  if (!view) return;
-  win?.contentView.removeChildView(view);
-  view.webContents.close();
-  views.delete(name);
+/** Drop a tool's view, or every view of the env when no tool is given. */
+function destroyView(env: string, tool?: ToolKind) {
+  for (const [key, view] of views) {
+    if (tool ? key !== viewKey(env, tool) : !key.startsWith(`${env}:`)) continue;
+    win?.contentView.removeChildView(view);
+    view.webContents.close();
+    views.delete(key);
+  }
 }
 
-/** Show only the active env's radar view, unless an HTML overlay (menu / dialog) needs the space. */
+/** Show only the active env's active tool, unless an HTML overlay (menu / dialog) needs the space. */
 function layout() {
   if (!win || win.isDestroyed()) return;
   const [width, height] = win.getContentSize();
-  const active = manager.active;
-  for (const [name, view] of views) {
-    const show = name === active && !overlayOpen;
+  const active = activeKey();
+  for (const [key, view] of views) {
+    const show = key === active && !overlayOpen;
     const attached = win.contentView.children.includes(view);
     if (show) {
       view.setBounds({ x: 0, y: BAR_HEIGHT, width, height: Math.max(0, height - BAR_HEIGHT) });
@@ -90,7 +101,6 @@ function sendCommand(cmd: string) {
 }
 
 function buildMenu() {
-  const activeView = () => (manager.active ? views.get(manager.active) : undefined);
   const template: MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
     {
@@ -108,8 +118,11 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
-        { label: 'Reload Radar', accelerator: 'CmdOrCtrl+R', click: () => activeView()?.webContents.reload() },
-        { label: 'Radar Developer Tools', accelerator: 'CmdOrCtrl+Shift+I', click: () => activeView()?.webContents.toggleDevTools() },
+        { label: 'Radar', accelerator: 'CmdOrCtrl+Shift+R', click: () => void manager.setTool('radar') },
+        { label: 'Vault', accelerator: 'CmdOrCtrl+Shift+V', click: () => void manager.setTool('vault') },
+        { type: 'separator' },
+        { label: 'Reload Page', accelerator: 'CmdOrCtrl+R', click: () => activeView()?.webContents.reload() },
+        { label: 'Page Developer Tools', accelerator: 'CmdOrCtrl+Shift+I', click: () => activeView()?.webContents.toggleDevTools() },
         { label: 'App Developer Tools', accelerator: 'CmdOrCtrl+Alt+I', click: () => win?.webContents.toggleDevTools() },
         { type: 'separator' },
         { role: 'togglefullscreen' },
@@ -128,8 +141,9 @@ function registerIpc() {
   ipcMain.handle('env:renew', (_e, env: string) => manager.session(env).renew());
   ipcMain.handle('env:cancel', (_e, env: string) => manager.session(env).cancel());
   ipcMain.handle('env:disconnect', (_e, env: string) => manager.session(env).disconnect());
+  ipcMain.handle('tool:set', (_e, tool: ToolKind) => manager.setTool(tool));
   ipcMain.handle('overlay:open', async () => {
-    const view = manager.active ? views.get(manager.active) : undefined;
+    const view = activeView();
     let shot: string | null = null;
     if (view && win?.contentView.children.includes(view)) {
       try {
@@ -173,17 +187,17 @@ async function main() {
     win.webContents.send('state', s);
     updateTitle();
   });
-  manager.on('ready', (name: string) => {
-    const url = manager.urlOf(name, 'radar');
-    if (url && !views.has(name)) createView(name, url);
+  manager.on('ready', (env: string, tool: ToolKind) => {
+    const url = manager.urlOf(env, tool);
+    if (url && !views.has(viewKey(env, tool))) createView(env, tool, url);
     layout();
   });
-  manager.on('stopped', (name: string) => {
-    destroyView(name);
+  manager.on('stopped', (env: string, tool?: ToolKind) => {
+    destroyView(env, tool);
     layout();
   });
   manager.on('activate', () => layout());
-  manager.on('reload-view', (name: string) => views.get(name)?.webContents.reload());
+  manager.on('reload-view', (env: string, tool: ToolKind) => views.get(viewKey(env, tool))?.webContents.reload());
   manager.on('renew-needed', (name: string) => notifyRenewal(name, false));
   manager.on('expired', (name: string) => notifyRenewal(name, true));
 

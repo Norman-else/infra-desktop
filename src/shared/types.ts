@@ -86,6 +86,8 @@ export interface RadarDesktopApi {
   /** Commands from the app menu / shortcuts, e.g. 'switcher' */
   onCommand(cb: (cmd: string) => void): void;
   switchTo(env: string): Promise<void>;
+  /** Show Radar or Vault (ignored when unavailable) */
+  setTool(tool: ToolKind): Promise<void>;
   submitMfa(env: string, code: string): Promise<void>;
   submitPassphrase(env: string, passphrase: string): Promise<void>;
   /** Start an MFA renewal for an already-running env */
