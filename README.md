@@ -69,7 +69,12 @@ xattr -cr "/Applications/Infra Desktop.app"
 - 第一次运行某个版本时会下载，需要一两分钟。
 - 所以改了 vault-mcp 之后，要在 vault-mcp 仓库发布 Release（Actions → Release），桌面才会用上。
 
-**第一次用某个环境的 Vault**：页面上会出现一个小表单，填 Vault 的 Address、Header（`X-Vault-AWS-IAM-Server-ID`，没有可以空着）和 Role，保存后就打开 Vault。这些值存在桌面自己的设置文件里（`envs.<profile>.vault`）。如果本机的 `~/.claude.json` 里配置过 `vault` MCP server，会直接沿用它的 `VAULT_ADDR_<ENV>` / `VAULT_HEADER_<ENV>` / `VAULT_ROLE_<ENV>` / `AWS_REGION_<ENV>`（只读这几项），就不会出现表单。
+**第一次用某个环境的 Vault**：桌面按这个顺序找 Vault 的 Address、Header（`X-Vault-AWS-IAM-Server-ID`）和 Role：
+
+1. 桌面自己的设置文件 `envs.<profile>.vault`；
+2. `~/.claude.json` 里 `vault` MCP server 的 `VAULT_ADDR_<ENV>` / `VAULT_HEADER_<ENV>` / `VAULT_ROLE_<ENV>` / `AWS_REGION_<ENV>`（只读这几项）；
+3. 集群自动识别：用该环境的凭证跑 kubectl，读 bank-vaults 的 `Vault` 资源（AWS auth 的 `iam_server_id_header_value`，以及绑定到 profile `role_arn` 的角色）和指向 Vault Service 的 Ingress（地址用 `https://<host>`）。找到后写进设置文件，下次不再查；
+4. 都没有时，页面上出现一个小表单手动填写。
 
 相关设置：
 

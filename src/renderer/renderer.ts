@@ -300,9 +300,10 @@ function appMenuHtml() {
     ? `<div class="item warn" data-act="settings">⚠ ${esc(state.problems[0])}${state.problems.length > 1 ? ` (+${state.problems.length - 1} more)` : ''}</div>`
     : '';
   const install = u.status === 'ready' ? `<div class="item accent" data-act="install-update">⬆ Restart to update to v${esc(u.version ?? '')}</div>` : '';
-  const running = state.envs.filter((e) => e.tools.radar.status === 'ready');
+  // Radar's MCP servers; not relevant while on the Vault tab.
+  const running = activeTool() === 'radar' ? state.envs.filter((e) => e.tools.radar.status === 'ready') : [];
   const mcp = running.length
-    ? `<div class="label-line">MCP endpoints · click to copy</div>${running
+    ? `<div class="label-line">Radar MCP endpoints · click to copy</div>${running
         .map((e) => {
           const url = `http://127.0.0.1:${e.port}/mcp`;
           return `<div class="item mcp" data-copy="${esc(url)}" style="--c:${e.color}"><span class="sw"></span><b>${esc(e.label)}</b><code>${esc(url)}</code></div>`;

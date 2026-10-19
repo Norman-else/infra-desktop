@@ -9,6 +9,7 @@ import { loadSettings, saveEnvVault, type Settings } from './settings';
 import { RadarTool } from './tools/radar';
 import type { Tool, ToolContext } from './tools/tool';
 import { VaultTool } from './tools/vault';
+import { discoverVault, type DiscoveredVault } from './vault-discovery';
 import { readClaudeVaultEnv, resolveVaultConfig, type VaultEnvConfig } from './vault-config';
 import { detectVaultMcp, LATEST_CHECK_INTERVAL_MS, type VaultMcp } from './vault-mcp';
 
@@ -37,6 +38,9 @@ class EnvSession {
   private inflight?: { promise: Promise<void>; code?: string };
   /** Bumped on disconnect so results of calls started before it are dropped. */
   private generation = 0;
+  /** Looking Vault up in the cluster (once per session, when nothing is configured). */
+  private vaultLookup?: Promise<void>;
+  private lookingUpVault = false;
 
   constructor(info: EnvInfo, private m: EnvManager) {
     this.state = { ...info, status: 'idle' };
@@ -45,6 +49,7 @@ class EnvSession {
   snapshot(): EnvState {
     const tools = {} as EnvState['tools'];
     for (const kind of TOOL_KINDS) tools[kind] = { ...(this.tools.get(kind)?.state ?? { status: 'stopped' }), ...this.m.availability(kind, this.state.name) };
+    if (this.lookingUpVault) tools.vault = { status: 'starting', step: 'Looking up Vault in the cluster…', available: true };
     return { ...this.state, tools };
   }
 
@@ -131,6 +136,7 @@ class EnvSession {
 
   /** Start a tool for this env if credentials are ready and it isn't running yet. */
   async ensureTool(kind: ToolKind): Promise<void> {
+    if (kind === 'vault') await this.lookupVault();
     const availability = this.m.availability(kind, this.state.name);
     if (this.state.status !== 'ready' || !availability.available || availability.setup) return;
     let tool = this.tools.get(kind);
@@ -142,6 +148,27 @@ class EnvSession {
     await tool.start();
     this.toolChanged(kind);
     if (isReady(tool)) this.m.emit('ready', this.state.name, kind);
+  }
+
+  /** No Vault address configured: try the cluster before showing the setup form. */
+  private lookupVault(): Promise<void> {
+    if (this.vaultLookup) return this.vaultLookup;
+    if (this.state.status !== 'ready' || !this.m.availability('vault').available || this.m.vaultConfig(this.state).addr) return Promise.resolve();
+    this.lookingUpVault = true;
+    this.m.emitState();
+    this.vaultLookup = (async () => {
+      try {
+        this.m.writeEnvFiles(this.state);
+        const found = await this.m.discoverVault(this.state, this.credentialEnv());
+        if (found.addr) this.m.rememberVault(this.state.profile, { ...found, addr: found.addr });
+      } catch {
+        /* the setup form is the fallback */
+      } finally {
+        this.lookingUpVault = false;
+        this.m.emitState();
+      }
+    })();
+    return this.vaultLookup;
   }
 
   /** Restart a tool that failed, reusing the env's credentials. */
@@ -309,7 +336,12 @@ export class EnvManager extends EventEmitter {
   constructor(
     readonly dataDir: string,
     toolFactories: ToolFactories = { radar: (ctx) => new RadarTool(ctx), vault: (ctx) => new VaultTool(ctx) },
-    private options: { detectVault?: (settings: Settings) => Promise<VaultMcp>; claudeJsonPath?: string } = {},
+    private options: {
+      detectVault?: (settings: Settings) => Promise<VaultMcp>;
+      claudeJsonPath?: string;
+      /** Find an env's Vault in its cluster; defaults to kubectl */
+      discoverVault?: (env: EnvInfo, processEnv: NodeJS.ProcessEnv) => Promise<DiscoveredVault>;
+    } = {},
   ) {
     super();
     this.toolFactories = toolFactories;
@@ -336,6 +368,26 @@ export class EnvManager extends EventEmitter {
   /** The env's Vault settings: settings override, else the vault MCP server's values. */
   vaultConfig(env: EnvInfo): VaultEnvConfig {
     return resolveVaultConfig(env, this.settings.envs?.[env.profile]?.vault, this.claudeVaultEnv);
+  }
+
+  /** Look an env's Vault up in its cluster with kubectl. */
+  discoverVault(env: EnvInfo, processEnv: NodeJS.ProcessEnv): Promise<DiscoveredVault> {
+    if (this.options.discoverVault) return this.options.discoverVault(env, processEnv);
+    const kubectl = which(['kubectl']);
+    return kubectl ? discoverVault(kubectl, processEnv, env.roleArn) : Promise.resolve({});
+  }
+
+  /** Keep Vault settings found in the cluster; values already configured win. */
+  rememberVault(profile: string, found: DiscoveredVault & { addr: string }): void {
+    const current = this.settings.envs?.[profile]?.vault ?? {};
+    const vault = { ...found, ...current, addr: current.addr ?? found.addr };
+    try {
+      saveEnvVault(this.settingsPath, profile, vault);
+    } catch {
+      /* still used for this run */
+    }
+    const envs = (this.settings.envs ??= {});
+    envs[profile] = { ...envs[profile], vault };
   }
 
   /** Save an env's Vault settings from the setup form, reload, and start Vault if it is being shown. */

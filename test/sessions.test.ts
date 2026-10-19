@@ -40,6 +40,8 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
   let dir: string;
   let manager: EnvManager;
   let made: Record<string, FakeTool>;
+  let discovered: { addr?: string; header?: string; role?: string };
+  let lookups: number;
   const oldAwsConfig = process.env.AWS_CONFIG_FILE;
 
   beforeEach(async () => {
@@ -59,12 +61,18 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
     writeFileSync(join(dir, 'settings.json'), JSON.stringify({ awsVaultPath: fake, kubeconfig: join(dir, 'kubeconfig') }));
     process.env.AWS_CONFIG_FILE = join(dir, 'aws-config');
     made = {};
+    discovered = {};
+    lookups = 0;
     manager = new EnvManager(dir, {
       radar: (ctx) => (made[`radar:${ctx.env.name}`] = new FakeTool('radar', ctx)),
       vault: (ctx) => (made[`vault:${ctx.env.name}`] = new FakeTool('vault', ctx)),
     }, {
       detectVault: async () => ({ ok: true, command: ['python', '-m', 'vault_mcp.web_ui'], cwd: dir, env: {}, startTimeoutMs: 60_000 }),
       claudeJsonPath: join(dir, 'claude.json'),
+      discoverVault: async () => {
+        lookups++;
+        return discovered;
+      },
     });
     writeFileSync(join(dir, 'claude.json'), JSON.stringify({ mcpServers: { vault: { env: { VAULT_ADDR_DEV: 'https://vault.dev.example' } } } }));
     await manager.init();
@@ -133,6 +141,36 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
     expect(manager.activeTool).toBe('vault');
     expect(made['vault:dev'].starts).toBe(1);
     expect(manager.getState().activeTool).toBe('vault');
+  });
+
+  it('without a configured address, Vault is looked up in the cluster and saved', async () => {
+    writeFileSync(join(dir, 'claude.json'), '{}');
+    manager.reload();
+    await manager.vaultReady();
+    discovered = { addr: 'https://vault.found.example', header: 'vault.found', role: 'vault_admin' };
+    await connectWithMfa();
+    await manager.setTool('vault');
+    expect(made['vault:dev'].starts).toBe(1);
+    expect(env().tools.vault.setup).toBeUndefined();
+    expect(JSON.parse(readFileSync(manager.settingsPath, 'utf8')).envs.dev.vault).toEqual(discovered);
+    await manager.setTool('vault');
+    expect(lookups).toBe(1);
+  });
+
+  it('shows the setup form when the cluster has no Vault', async () => {
+    writeFileSync(join(dir, 'claude.json'), '{}');
+    manager.reload();
+    await manager.vaultReady();
+    await connectWithMfa();
+    await manager.setTool('vault');
+    expect(made['vault:dev']).toBeUndefined();
+    expect(env().tools.vault.setup).toBe('vault');
+  });
+
+  it('a configured address skips the cluster lookup', async () => {
+    await connectWithMfa();
+    await manager.setTool('vault');
+    expect(lookups).toBe(0);
   });
 
   it('switching env keeps the active tool', async () => {
