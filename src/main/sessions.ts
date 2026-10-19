@@ -10,7 +10,7 @@ import { RadarTool } from './tools/radar';
 import type { Tool, ToolContext } from './tools/tool';
 import { VaultTool } from './tools/vault';
 import { readClaudeVaultEnv, resolveVaultConfig, type VaultEnvConfig } from './vault-config';
-import { detectVaultMcp, type VaultMcp } from './vault-mcp';
+import { detectVaultMcp, LATEST_CHECK_INTERVAL_MS, type VaultMcp } from './vault-mcp';
 
 type Purpose = 'connect' | 'renew';
 export type ToolFactories = Partial<Record<ToolKind, (ctx: ToolContext) => Tool>>;
@@ -304,6 +304,7 @@ export class EnvManager extends EventEmitter {
   vaultMcp?: VaultMcp;
   private vaultDetection: Promise<void> = Promise.resolve();
   private claudeVaultEnv: Record<string, string> = {};
+  private vaultRefresh?: NodeJS.Timeout;
 
   constructor(
     readonly dataDir: string,
@@ -370,6 +371,8 @@ export class EnvManager extends EventEmitter {
   async init(): Promise<void> {
     await this.credServer.start();
     this.reload();
+    this.vaultRefresh = setInterval(() => this.detectVault(), LATEST_CHECK_INTERVAL_MS);
+    this.vaultRefresh.unref?.();
   }
 
   /** (Re)read settings, ~/.aws/config and kubeconfig. Running sessions are kept. */
@@ -420,17 +423,24 @@ export class EnvManager extends EventEmitter {
     if (this.active && !next.has(this.active)) this.active = null;
 
     this.claudeVaultEnv = readClaudeVaultEnv(this.options.claudeJsonPath);
-    if (this.toolFactories.vault) {
-      this.vaultMcp = undefined;
-      const detect = this.options.detectVault ?? detectVaultMcp;
-      const settings = this.settings;
-      this.vaultDetection = detect(settings).then((r) => {
-        if (this.settings !== settings) return; // a newer reload is detecting
-        this.vaultMcp = r;
-        this.emitState();
-      });
-    }
+    this.vaultMcp = undefined;
+    this.detectVault();
     this.emitState();
+  }
+
+  /**
+   * (Re)check how to run vault-mcp; in uvx mode this also picks up a newer vault-mcp release.
+   * Running Vault tools keep their launcher; tools started later use the new one.
+   */
+  private detectVault(): void {
+    if (!this.toolFactories.vault) return;
+    const detect = this.options.detectVault ?? ((s: Settings) => detectVaultMcp(s, { stateFile: join(this.dataDir, 'vault-mcp.json') }));
+    const settings = this.settings;
+    this.vaultDetection = detect(settings).then((r) => {
+      if (this.settings !== settings) return; // a newer reload is detecting
+      this.vaultMcp = r;
+      this.emitState();
+    });
   }
 
   /** aws-vault backend to use: from settings, else whichever backend actually holds keys (detected once per reload). */
@@ -498,6 +508,7 @@ export class EnvManager extends EventEmitter {
   }
 
   shutdown(): void {
+    clearInterval(this.vaultRefresh);
     for (const s of this.sessions.values()) s.disconnect();
     this.credServer.stop();
   }
