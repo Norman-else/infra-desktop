@@ -190,7 +190,7 @@ class EnvSession {
       AWS_REGION: this.state.region ?? '',
       AWS_DEFAULT_REGION: this.state.region ?? '',
       KUBECONFIG: kubeconfig,
-      RADAR_DESKTOP_ENV: this.state.name,
+      INFRA_DESKTOP_ENV: this.state.name,
     });
     if (!this.state.region) {
       delete env.AWS_REGION;

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, Notification, shell, WebContentsView, type MenuItemConstructorOptions } from 'electron';
 import { join } from 'node:path';
+import { migrateUserData } from './migrate';
 import { importLoginShellEnv } from './paths';
 import { EnvManager } from './sessions';
 import { createUpdater, type Updater } from './updater';
@@ -152,8 +153,9 @@ function registerIpc() {
 }
 
 async function main() {
-  // Lets a test/dev run use its own settings and state.
-  if (process.env.RADAR_DESKTOP_DATA_DIR) app.setPath('userData', process.env.RADAR_DESKTOP_DATA_DIR);
+  // Lets a test/dev run use its own settings and state (RADAR_DESKTOP_DATA_DIR: name before the rename).
+  const dataDirOverride = process.env.INFRA_DESKTOP_DATA_DIR ?? process.env.RADAR_DESKTOP_DATA_DIR;
+  if (dataDirOverride) app.setPath('userData', dataDirOverride);
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
@@ -162,6 +164,8 @@ async function main() {
   if (process.platform === 'win32') app.setAppUserModelId('io.radar.desktop');
   await app.whenReady();
   await importLoginShellEnv();
+  // The app was called Radar Desktop before 0.2.0; bring its settings along once.
+  if (!dataDirOverride) migrateUserData(join(app.getPath('appData'), 'Radar Desktop'), app.getPath('userData'));
 
   manager = new EnvManager(app.getPath('userData'));
   manager.on('state', (s) => {
