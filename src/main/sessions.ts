@@ -277,8 +277,8 @@ class EnvSession {
 const isReady = (t: Tool) => t.state.status === 'ready';
 
 function pickInfo(s: EnvInfo): EnvInfo {
-  const { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName, port } = s;
-  return { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName, port };
+  const { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName, port, vaultPort } = s;
+  return { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName, port, vaultPort };
 }
 
 export class EnvManager extends EventEmitter {

@@ -81,3 +81,14 @@ describe('ports', () => {
     expect(clash.map((e) => e.port)).toEqual([9282, 9281, 9283]);
   });
 });
+
+describe('vault ports', () => {
+  it('vault ports default to radar port + 10', () => {
+    const envs = discoverEnvs(parseAwsConfig(awsConfig), mergeKubeConfigs([kubeYaml]), { prod: { vault: { port: 9600 } } });
+    expect(envs.map((e) => [e.name, e.vaultPort])).toEqual([
+      ['dev', 9291],
+      ['sat', 9292],
+      ['prod', 9600],
+    ]);
+  });
+});

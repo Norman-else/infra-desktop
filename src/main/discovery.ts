@@ -9,6 +9,8 @@ export interface EnvOverride {
   hidden?: boolean;
   /** Fixed local port for this env's radar (its MCP server is at /mcp on the same port) */
   port?: number;
+  /** Vault for this env; values not set here come from the vault MCP server in ~/.claude.json */
+  vault?: { addr?: string; header?: string; role?: string; env?: string; port?: number };
 }
 
 export interface AwsProfile {
@@ -119,10 +121,13 @@ export function discoverEnvs(profiles: AwsProfile[], kube: KubeConfig, overrides
       context,
       clusterName: clusterDisplayName(kube, context),
       port: o.port ?? 0,
+      vaultPort: o.vault?.port ?? 0,
     });
   }
   envs.sort((a, b) => riskRank(a.color) - riskRank(b.color) || a.name.localeCompare(b.name));
   assignPorts(envs);
+  // Vault UI next to radar: radar port + 10 (dev 9291, sat 9292, prod 9293) unless configured.
+  for (const e of envs) e.vaultPort ||= e.port + 10;
   return envs;
 }
 

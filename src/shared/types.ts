@@ -41,6 +41,8 @@ export interface EnvInfo {
   clusterName: string;
   /** Fixed local port for radar (UI and MCP at /mcp) */
   port: number;
+  /** Fixed local port for the Vault web UI */
+  vaultPort: number;
 }
 
 export interface EnvState extends EnvInfo {

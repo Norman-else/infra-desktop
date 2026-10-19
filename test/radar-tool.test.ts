@@ -13,7 +13,7 @@ afterEach(() => tools.splice(0).forEach((t) => t.stop()));
 
 async function makeTool(env: Record<string, string>) {
   const dir = mkdtempSync(join(tmpdir(), 'radar-tool-'));
-  const info: EnvInfo = { name: 'dev', label: 'DEV', color: '#1f8f4e', profile: 'dev', context: 'acme-dev', clusterName: 'acme-dev', port: await freePort() };
+  const info: EnvInfo = { name: 'dev', label: 'DEV', color: '#1f8f4e', profile: 'dev', context: 'acme-dev', clusterName: 'acme-dev', port: await freePort(), vaultPort: 0 };
   const events: string[] = [];
   const ctx: ToolContext = {
     env: info,

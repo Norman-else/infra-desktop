@@ -14,6 +14,10 @@ export interface Settings {
   duration?: string;
   /** Extra arguments appended to every radar invocation */
   radarArgs?: string[];
+  /** vault-mcp checkout used for the Vault tab; defaults to K:/MCP/vault-mcp on Windows when present */
+  vaultMcpPath?: string;
+  /** Python for vault-mcp; defaults to the checkout's .venv */
+  vaultPython?: string;
   /** Per-profile overrides, keyed by AWS profile name */
   envs?: Record<string, EnvOverride>;
 }
@@ -25,6 +29,8 @@ const TEMPLATE: Settings = {
   kubeconfig: '',
   duration: '',
   radarArgs: [],
+  vaultMcpPath: '',
+  vaultPython: '',
   envs: {
     'example-profile': { context: 'my-kube-context', label: 'EXAMPLE', color: '#3d6fd6', hidden: false, port: 9290 },
   },
@@ -37,6 +43,6 @@ export function loadSettings(file: string): Settings {
   }
   const raw = JSON.parse(readFileSync(file, 'utf8')) as Settings;
   // Treat empty strings from the template as "not set".
-  for (const k of ['awsVaultPath', 'awsVaultBackend', 'radarPath', 'kubeconfig', 'duration'] as const) if (!raw[k]) delete raw[k];
+  for (const k of ['awsVaultPath', 'awsVaultBackend', 'radarPath', 'kubeconfig', 'duration', 'vaultMcpPath', 'vaultPython'] as const) if (!raw[k]) delete raw[k];
   return raw;
 }
