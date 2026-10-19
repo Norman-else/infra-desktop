@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { ToolHealth, ToolState } from '../../shared/types';
 import type { VaultEnvConfig } from '../vault-config';
+import { killTree, treeSpawnOptions } from '../process-tree';
 import { vaultMcpEnv, type VaultMcpReady } from '../vault-mcp';
 import type { Tool, ToolContext } from './tool';
 
@@ -60,7 +61,7 @@ export class VaultTool implements Tool {
     clearTimeout(this.healthTimer);
     const child = this.child;
     this.child = undefined;
-    if (child && child.exitCode === null) child.kill();
+    if (child) killTree(child);
     this.state = { status: 'error', message, logTail: this.log.slice(-40) };
     this.ctx.onChange();
   }
@@ -83,6 +84,7 @@ export class VaultTool implements Tool {
     const command = mcp.command;
     const args = [...command.slice(1), '--env', config.env, '--port', String(config.port), '--host', '127.0.0.1'];
     const child = spawn(command[0], args, {
+      ...treeSpawnOptions,
       cwd: mcp.cwd,
       env: vaultProcessEnv(this.ctx.credentialEnv(), mcp, config, this.ctx.env.context),
       windowsHide: true,
@@ -131,7 +133,7 @@ export class VaultTool implements Tool {
     clearTimeout(this.healthTimer);
     const child = this.child;
     this.child = undefined;
-    if (child && child.exitCode === null) child.kill();
+    if (child) killTree(child);
     if (this.state.status !== 'stopped') this.state = { status: 'stopped' };
   }
 
