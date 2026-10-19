@@ -1,5 +1,7 @@
 import type { EnvInfo, ToolKind, ToolState } from '../../shared/types';
 import type { Settings } from '../settings';
+import type { VaultEnvConfig } from '../vault-config';
+import type { VaultMcpReady } from '../vault-mcp';
 
 /** What an environment hands to each of its tools. */
 export interface ToolContext {
@@ -11,6 +13,8 @@ export interface ToolContext {
   settings: Settings;
   /** Commands as argv: executable followed by leading arguments. */
   binaries: { radar?: string[] };
+  /** Vault tool only: the vault-mcp checkout and this env's Vault settings; `command` replaces [python, -m, vault_mcp.web_ui] in tests. */
+  vault?: { mcp: VaultMcpReady; config: VaultEnvConfig; command?: string[] };
   /** The tool's state changed; push app state. */
   onChange(): void;
   /** Ask the window to reload this tool's page. */
