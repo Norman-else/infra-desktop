@@ -61,12 +61,22 @@ xattr -cr "/Applications/Infra Desktop.app"
 
 ## Vault
 
-顶栏切到 **Vault** 就会在当前环境打开 [vault-mcp](https://github.com/Norman-else/vault-mcp) 的 Web UI，和 Radar 共用同一份 AWS 凭证：不用再输 MFA，不依赖 Claude 是否打开，也不会改你全局的 kubectl context。凭证续期后 Vault 会自动重新登录。
+顶栏切到 **Vault** 就会在当前环境打开 [vault-mcp](https://github.com/Norman-else/vault-mcp) 的 Web UI，和 Radar 共用同一份 AWS 凭证：不用再输 MFA，不需要 Claude，也不会改你全局的 kubectl context。凭证续期后 Vault 会自动重新登录。
 
-- 需要本机有 vault-mcp 的 checkout（含 `.venv`，并且支持独立模式：`python -m vault_mcp.web_ui --version` 输出 `vault-mcp-web-ui standalone 1`）。Windows 默认用 `K:/MCP/vault-mcp`，其他位置在设置里写 `vaultMcpPath`（以及可选的 `vaultPython`）。
-- 每个环境的 Vault 地址、header、role、region 直接读取 `~/.claude.json` 里 `vault` MCP server 的 `VAULT_ADDR_<ENV>` / `VAULT_HEADER_<ENV>` / `VAULT_ROLE_<ENV>` / `AWS_REGION_<ENV>`（只读这几项），也可以在设置里用 `envs.<profile>.vault` 覆盖：`{ "addr", "header", "role", "env", "port" }`。
-- Vault 端口默认是 radar 端口 + 10：dev 9291、sat 9292、prod 9293。
-- 某个环境找不到 Vault 地址、或者 vault-mcp 不可用时，Vault 按钮是灰的，鼠标悬停能看到原因。
+**需要什么**：装好 [uv](https://docs.astral.sh/uv/) 就行。桌面会用 `uvx` 运行一个固定版本的 vault-mcp（第一次会下载，需要一两分钟），不需要 clone 代码。
+
+**第一次用某个环境的 Vault**：页面上会出现一个小表单，填 Vault 的 Address、Header（`X-Vault-AWS-IAM-Server-ID`，没有可以空着）和 Role，保存后就打开 Vault。这些值存在桌面自己的设置文件里（`envs.<profile>.vault`）。如果本机的 `~/.claude.json` 里配置过 `vault` MCP server，会直接沿用它的 `VAULT_ADDR_<ENV>` / `VAULT_HEADER_<ENV>` / `VAULT_ROLE_<ENV>` / `AWS_REGION_<ENV>`（只读这几项），就不会出现表单。
+
+相关设置：
+
+| 键 | 说明 |
+|---|---|
+| `vaultMcpSource` | `auto`（默认：有本地 checkout 就用 checkout，否则 uvx）、`uvx`、`checkout` |
+| `vaultMcpPath` | 本地 vault-mcp checkout（Windows 上 `K:/MCP/vault-mcp` 存在时会自动使用），可选 `vaultPython` |
+| `vaultMcpRef` | uvx 模式下运行的 vault-mcp 版本（commit sha 或 tag），默认是这个桌面版本固定的版本 |
+| `envs.<profile>.vault` | `{ "addr", "header", "role", "env", "port" }`，覆盖自动读取的值 |
+
+Vault 端口默认是 radar 端口 + 10：dev 9291、sat 9292、prod 9293。
 
 ## 工作方式
 

@@ -155,6 +155,22 @@ function renderBody() {
   }
   const tool = e.tools[activeTool()];
   const name = TOOL_NAMES[activeTool()];
+  if (e.status === 'ready' && tool.setup === 'vault') {
+    // Render once per env: state pushes must not wipe what is being typed.
+    if (body.querySelector(`form[data-setup="${CSS.escape(e.name)}"]`)) return;
+    body.innerHTML = `<div class="center"><form class="setup-card" style="--c:${e.color}" data-setup="${esc(e.name)}">
+      <h1>Set up Vault for ${esc(e.label)}</h1>
+      <p class="sub">Infra Desktop signs in to this Vault with ${esc(e.label)}'s AWS credentials (AWS IAM auth).</p>
+      <label>Address<input name="addr" required placeholder="https://vault.example.com" autocomplete="off" /></label>
+      <label>Header <span class="opt">X-Vault-AWS-IAM-Server-ID, if your Vault requires it</span><input name="header" autocomplete="off" /></label>
+      <label>Role <span class="opt">Vault AWS auth role</span><input name="role" autocomplete="off" /></label>
+      <div class="err" hidden></div>
+      <div class="actions"><button class="btn primary" type="submit">Save and open Vault</button></div>
+      <p class="note">Saved in this app's settings file (envs.${esc(e.profile)}.vault).</p>
+    </form></div>`;
+    body.querySelector<HTMLInputElement>('input[name=addr]')?.focus();
+    return;
+  }
   if (e.status === 'ready' && tool.status === 'error') {
     body.innerHTML = `<div class="center error" style="--c:${e.color}"><h1>Could not start ${name} for ${esc(e.label)}</h1>
       <pre>${esc(tool.message ?? '')}</pre>${tool.logTail?.length ? `<p class="sub">${name} output:</p><pre>${esc(tool.logTail.join('\n'))}</pre>` : ''}
@@ -182,6 +198,24 @@ function renderBody() {
   }
   body.innerHTML = ''; // ready: radar view covers this area
 }
+
+body.addEventListener('submit', (ev) => {
+  const form = (ev.target as HTMLElement).closest<HTMLFormElement>('form[data-setup]');
+  if (!form) return;
+  ev.preventDefault();
+  const field = (n: string) => (form.elements.namedItem(n) as HTMLInputElement).value;
+  const err = form.querySelector<HTMLElement>('.err')!;
+  const button = form.querySelector<HTMLButtonElement>('button[type=submit]')!;
+  button.disabled = true;
+  err.hidden = true;
+  void api.saveVaultConfig(form.dataset.setup!, { addr: field('addr'), header: field('header'), role: field('role') }).then((r) => {
+    button.disabled = false;
+    if (!r.ok) {
+      err.textContent = r.error;
+      err.hidden = false;
+    }
+  });
+});
 
 body.addEventListener('click', (ev) => {
   const t = (ev.target as HTMLElement).closest<HTMLElement>('[data-act],[data-env]');

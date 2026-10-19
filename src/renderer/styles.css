@@ -55,6 +55,14 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; border-radiu
 .env-card .s { font-size: 12px; margin-top: 10px; }
 .problems { background: #3a2a1e; border: 1px solid #7a5520; color: #f3d6a4; border-radius: 8px; padding: 12px 14px; margin-bottom: 18px; }
 .problems ul { margin: 6px 0 0; padding-left: 18px; }
+.setup-card { max-width: 520px; margin: 0 auto; background: var(--panel); border-radius: 12px; padding: 22px 24px; border-top: 5px solid var(--c); }
+.setup-card h1 { font-size: 20px; margin: 0 0 6px; }
+.setup-card label { display: block; margin-top: 14px; color: var(--muted); font-size: 12px; }
+.setup-card .opt { opacity: 0.8; margin-left: 6px; }
+.setup-card input { display: block; width: 100%; margin-top: 6px; background: #111215; border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 9px 11px; font-size: 13px; outline: none; }
+.setup-card input:focus { border-color: var(--c); }
+.setup-card .err { color: #ff8a80; font-size: 12px; margin-top: 12px; }
+.setup-card .note { color: var(--muted); font-size: 11px; margin: 12px 0 0; }
 .progress { text-align: center; }
 .progress .spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--c); margin: 0 auto 16px; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
