@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type AddressInfo } from 'node:net';
+import { reclaimPort } from './orphans';
 
 /** Whether 127.0.0.1:port can be bound right now. */
 export function portFree(port: number): Promise<boolean> {
@@ -47,7 +48,8 @@ export class RadarProcess {
   }
 
   async start(): Promise<void> {
-    if (this.o.port && !(await portFree(this.o.port)))
+    // A radar this app left behind (it ended without stopping it) is killed; anything else keeps the port.
+    if (this.o.port && !(await portFree(this.o.port)) && !(await reclaimPort('radar', this.o.port)))
       throw new Error(`Port ${this.o.port} is already in use (is radar already running in a terminal?). Stop it or set a different "port" for this environment in settings.`);
     this.port = this.o.port || (await freePort());
     const args = ['-no-browser', '-listen-address', '127.0.0.1', '-port', String(this.port), '-kubeconfig', this.o.kubeconfig, ...this.o.extraArgs];

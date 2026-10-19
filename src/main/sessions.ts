@@ -343,6 +343,7 @@ export class EnvManager extends EventEmitter {
   vaultVersion: VaultVersion = { status: 'checking' };
   private claudeVaultEnv: Record<string, string> = {};
   private vaultRefresh?: NodeJS.Timeout;
+  private isShutDown = false;
 
   constructor(
     readonly dataDir: string,
@@ -589,7 +590,10 @@ export class EnvManager extends EventEmitter {
     this.emit('state', this.getState());
   }
 
+  /** Stop every env's tools; safe to call more than once (before an update install and again on quit). */
   shutdown(): void {
+    if (this.isShutDown) return;
+    this.isShutDown = true;
     clearInterval(this.vaultRefresh);
     for (const s of this.sessions.values()) s.disconnect();
     this.credServer.stop();

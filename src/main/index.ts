@@ -206,10 +206,13 @@ async function main() {
   registerIpc();
   buildMenu();
   await manager.init();
-  updater = createUpdater((u) => {
-    manager.update = u;
-    manager.emitState();
-  });
+  updater = createUpdater(
+    (u) => {
+      manager.update = u;
+      manager.emitState();
+    },
+    () => manager.shutdown(),
+  );
   manager.update = { ...updater.state };
 
   win = new BrowserWindow({

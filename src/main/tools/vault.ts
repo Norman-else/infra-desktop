@@ -1,7 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { ToolHealth, ToolState } from '../../shared/types';
 import type { VaultEnvConfig } from '../vault-config';
+import { reclaimPort } from '../orphans';
 import { killTree, treeSpawnOptions } from '../process-tree';
+import { portFree } from '../radar';
 import { vaultMcpEnv, type VaultMcpReady } from '../vault-mcp';
 import type { Tool, ToolContext } from './tool';
 
@@ -49,6 +51,8 @@ export class VaultTool implements Tool {
   private log: string[] = [];
   private healthTimer?: NodeJS.Timeout;
   private loginAt = 0;
+  /** Bumped by each start() and stop(), so a start that was superseded while waiting gives up. */
+  private generation = 0;
 
   constructor(private ctx: ToolContext) {}
 
@@ -68,6 +72,7 @@ export class VaultTool implements Tool {
 
   async start(): Promise<void> {
     this.stop();
+    const generation = this.generation;
     const vault = this.ctx.vault;
     if (!vault) return this.fail('Vault is not configured for this environment.');
     const { mcp, config } = vault;
@@ -81,6 +86,10 @@ export class VaultTool implements Tool {
     } catch (e) {
       return this.fail(`Could not write kubeconfig: ${(e as Error).message}`);
     }
+    // vault-mcp left running after the app ended (its uvx gone) still holds the port: kill it.
+    // Any other listener is left alone, and vault-mcp reports the port as in use.
+    if (!(await portFree(config.port))) await reclaimPort('vault', config.port);
+    if (this.generation !== generation) return;
     const command = mcp.command;
     const args = [...command.slice(1), '--env', config.env, '--port', String(config.port), '--host', '127.0.0.1'];
     const child = spawn(command[0], args, {
@@ -130,6 +139,7 @@ export class VaultTool implements Tool {
   }
 
   stop(): void {
+    this.generation++;
     clearTimeout(this.healthTimer);
     const child = this.child;
     this.child = undefined;

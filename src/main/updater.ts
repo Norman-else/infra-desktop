@@ -47,14 +47,14 @@ export function installTarget(currentBundle: string, productName: string): strin
  * macOS: the app is only ad-hoc signed, which Squirrel.Mac rejects, so we download the release zip ourselves
  * and swap the .app bundle after the app quits.
  */
-export function createUpdater(onChange: (s: UpdateState) => void): Updater {
+export function createUpdater(onChange: (s: UpdateState) => void, beforeQuit: () => void): Updater {
   const state: UpdateState = { status: app.isPackaged ? 'idle' : 'disabled', current: app.getVersion() };
   const set = (patch: Partial<UpdateState>) => {
     Object.assign(state, patch);
     onChange({ ...state });
   };
   let lastCheck = 0;
-  const impl = process.platform === 'darwin' ? macUpdater(state, set) : winUpdater(state, set);
+  const impl = process.platform === 'darwin' ? macUpdater(state, set, beforeQuit) : winUpdater(state, set, beforeQuit);
   const updater: Updater = {
     state,
     async check() {
@@ -84,7 +84,7 @@ export function createUpdater(onChange: (s: UpdateState) => void): Updater {
 
 type Impl = { check(): Promise<void>; install(): void };
 
-function winUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void): Impl {
+function winUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void, beforeQuit: () => void): Impl {
   // Loaded lazily: electron-updater touches app paths at import time.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { autoUpdater } = require('electron-updater') as typeof import('electron-updater');
@@ -107,7 +107,12 @@ function winUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void):
     check: async () => {
       await autoUpdater.checkForUpdates();
     },
-    install: () => autoUpdater.quitAndInstall(false, true),
+    install: () => {
+      // The installer can end the app before 'before-quit' runs; stop tools while uvx still parents vault-mcp,
+      // or its grandchildren outlive the app and keep their ports.
+      beforeQuit();
+      autoUpdater.quitAndInstall(false, true);
+    },
   };
 }
 
@@ -116,7 +121,7 @@ interface MacManifest {
   files: { url: string; sha512: string; size?: number }[];
 }
 
-function macUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void): Impl {
+function macUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void, beforeQuit: () => void): Impl {
   let staged: string | undefined; // path of the new .app, extracted and ready to swap in
 
   const appBundle = () => {
@@ -186,6 +191,7 @@ function macUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void):
         stdio: 'ignore',
         env: { ...process.env, PID: String(process.pid), C: current, T: target, S: staged },
       }).unref();
+      beforeQuit();
       app.quit();
     },
   };
