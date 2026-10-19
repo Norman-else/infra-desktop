@@ -84,7 +84,7 @@ function notifyRenewal(name: string, expired: boolean) {
   const left = env.credsExpiresAt ? Math.max(0, Math.round((env.credsExpiresAt - Date.now()) / 60_000)) : 0;
   const n = new Notification({
     title: expired ? `${env.label}: AWS credentials expired` : `${env.label}: AWS credentials expire in ${left} min`,
-    body: 'Click to enter an MFA code and renew without restarting radar.',
+    body: 'Click to enter an MFA code and renew without restarting Radar or Vault.',
   });
   n.on('click', () => {
     if (!win) return;
