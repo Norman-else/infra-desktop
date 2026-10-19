@@ -1,4 +1,4 @@
-import type { AppState, EnvState, RadarDesktopApi } from '../shared/types';
+import type { AppState, EnvState, RadarDesktopApi, ToolKind } from '../shared/types';
 
 declare global {
   interface Window { radarDesktop: RadarDesktopApi }
@@ -12,7 +12,7 @@ const overlay = $('overlay');
 const backdrop = $<HTMLImageElement>('backdrop');
 const overlayContent = $('overlay-content');
 
-let state: AppState = { envs: [], active: null, problems: [], settingsPath: '', update: { status: 'disabled', current: '' } };
+let state: AppState = { envs: [], active: null, problems: [], settingsPath: '', update: { status: 'disabled', current: '' }, activeTool: 'radar' };
 let menuOpen = false;
 /** The ⚙ menu: settings, config reload, version and updates */
 let appMenuOpen = false;
@@ -34,19 +34,17 @@ function remaining(ms?: number): string | undefined {
   return `${Math.floor(min / 60)} h ${min % 60} min`;
 }
 
-const ERROR_TYPES: Record<string, string> = {
-  'auth-rejected': 'authentication rejected',
-  unreachable: 'cluster unreachable',
-  timeout: 'timed out',
-  forbidden: 'forbidden',
-};
+/** The tool shown in the window. */
+const activeTool = (): ToolKind => state.activeTool;
+const TOOL_NAMES: Record<ToolKind, string> = { radar: 'Radar', vault: 'Vault' };
 
-function clusterText(e: EnvState): { text: string; cls: string } {
-  const c = e.cluster;
-  if (!c) return { text: 'Checking cluster…', cls: '' };
-  if (c.state === 'connected') return { text: '● Cluster connected', cls: 'ok' };
-  if (c.state === 'connecting') return { text: 'Connecting to cluster…', cls: '' };
-  return { text: `⚠ Cluster connection failed${c.errorType ? `: ${ERROR_TYPES[c.errorType] ?? c.errorType}` : ''}`, cls: 'bad' };
+/** Health pill of the shown tool: what its own status check reports. */
+function healthText(e: EnvState): { text: string; cls: string; title?: string } {
+  const h = e.tools[activeTool()].health;
+  if (!h) return { text: 'Checking…', cls: '' };
+  if (h.state === 'ok') return { text: `● ${h.text}`, cls: 'ok' };
+  if (h.state === 'pending') return { text: `${h.text}…`, cls: '' };
+  return { text: `⚠ ${h.text}`, cls: 'bad', title: h.detail };
 }
 
 /** Short status for the menu and cards; `title` holds the full text for a tooltip. */
@@ -56,15 +54,14 @@ function statusText(e: EnvState): { text: string; cls: string; title?: string } 
   switch (e.status) {
     case 'ready': {
       const r = remaining(e.credsExpiresAt);
-      const c = clusterText(e);
-      if (c.cls === 'bad') {
-        const t = e.cluster?.errorType;
-        return { text: `⚠ ${t === 'auth-rejected' ? 'Auth rejected' : t ? (ERROR_TYPES[t] ?? t) : 'Cluster error'}`, cls: 'bad', title: c.text };
-      }
+      const tool = e.tools[activeTool()];
+      if (tool.status === 'error') return { text: `⚠ ${TOOL_NAMES[activeTool()]} failed`, cls: 'bad', title: tool.message };
+      if (tool.status === 'starting') return { text: 'Starting…', cls: '' };
+      const c = healthText(e);
+      if (c.cls === 'bad') return c;
       return { text: e.renewNeedsMfa ? `Renewal needed · ${r} left` : `Running${r ? ` · ${r} left` : ''}`, cls: e.renewNeedsMfa ? 'bad' : 'ok' };
     }
     case 'checking':
-    case 'connecting':
       return { text: 'Connecting…', cls: '' };
     case 'error':
       return { text: 'Error', cls: 'bad' };
@@ -98,9 +95,9 @@ function renderBar() {
   const r = remaining(e.credsExpiresAt);
   let meta = '';
   if (e.status === 'ready') {
-    // Cluster reachability first: valid AWS credentials don't mean radar can talk to the cluster.
-    const c = clusterText(e);
-    meta = `<span class="health ${c.cls}" title="${esc(e.cluster?.error ?? '')}">${esc(c.text)}</span>`;
+    // The tool's own health first: valid AWS credentials don't mean it can reach what it manages.
+    const c = healthText(e);
+    meta = e.tools[activeTool()].status === 'ready' ? `<span class="health ${c.cls}" title="${esc(c.title ?? '')}">${esc(c.text)}</span>` : '';
     if (r === 'expired') meta += `<button class="warn-btn" data-act="renew">⚠ AWS credentials expired · Enter MFA</button>`;
     else if (e.renewNeedsMfa) meta += `<button class="warn-btn" data-act="renew">⚠ AWS credentials expire in ${r} · Enter MFA to renew</button>`;
     else if (r) meta += `<span class="meta">AWS credentials: ${r} left</span>`;
@@ -142,14 +139,28 @@ function renderBody() {
         .join('')}</div></div>`;
     return;
   }
-  if (e.status === 'error') {
-    body.innerHTML = `<div class="center error" style="--c:${e.color}"><h1>Could not connect to ${esc(e.label)}</h1>
-      <pre>${esc(e.message ?? '')}</pre>${e.logTail?.length ? `<p class="sub">radar output:</p><pre>${esc(e.logTail.join('\n'))}</pre>` : ''}
+  const tool = e.tools[activeTool()];
+  const name = TOOL_NAMES[activeTool()];
+  if (e.status === 'ready' && tool.status === 'error') {
+    body.innerHTML = `<div class="center error" style="--c:${e.color}"><h1>Could not start ${name} for ${esc(e.label)}</h1>
+      <pre>${esc(tool.message ?? '')}</pre>${tool.logTail?.length ? `<p class="sub">${name} output:</p><pre>${esc(tool.logTail.join('\n'))}</pre>` : ''}
       <div class="actions"><button class="btn primary" data-act="retry">Retry</button><button class="btn" data-act="menu">Switch environment</button>
       <button class="btn" data-act="settings">Open settings file</button></div></div>`;
     return;
   }
-  if (e.status === 'checking' || e.status === 'connecting') {
+  if (e.status === 'ready' && tool.status !== 'ready') {
+    body.innerHTML = `<div class="progress" style="--c:${e.color}"><div class="spinner"></div>
+      <div class="step">${esc(tool.step ?? `Starting ${name}…`)}</div><div class="hint">${esc(e.label)} · ${esc(e.clusterName)}</div></div>`;
+    return;
+  }
+  if (e.status === 'error') {
+    body.innerHTML = `<div class="center error" style="--c:${e.color}"><h1>Could not connect to ${esc(e.label)}</h1>
+      <pre>${esc(e.message ?? '')}</pre>
+      <div class="actions"><button class="btn primary" data-act="retry">Retry</button><button class="btn" data-act="menu">Switch environment</button>
+      <button class="btn" data-act="settings">Open settings file</button></div></div>`;
+    return;
+  }
+  if (e.status === 'checking') {
     body.innerHTML = `<div class="progress" style="--c:${e.color}"><div class="spinner"></div>
       <div class="step">${esc(e.step ?? 'Connecting…')}</div><div class="hint">${esc(e.label)} · ${esc(e.clusterName)}</div>
       <div class="actions" style="justify-content:center"><button class="btn" data-act="cancel">Cancel</button></div></div>`;

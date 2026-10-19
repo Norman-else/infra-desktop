@@ -1,4 +1,5 @@
-export type EnvStatus = 'idle' | 'checking' | 'connecting' | 'ready' | 'error';
+/** Credential state of an environment; tools have their own ToolState. */
+export type EnvStatus = 'idle' | 'checking' | 'ready' | 'error';
 
 /** Input the env is waiting for from the user (first connect, or renewing credentials of a running env) */
 export type EnvPrompt = 'mfa' | 'passphrase';
@@ -24,13 +25,6 @@ export interface ToolState {
 export interface ToolAvailability {
   available: boolean;
   reason?: string;
-}
-
-export interface ClusterHealth {
-  /** radar's state, e.g. connected / connecting / disconnected; 'unknown' when radar didn't answer */
-  state: string;
-  error?: string;
-  errorType?: string;
 }
 
 export interface EnvInfo {
@@ -62,10 +56,8 @@ export interface EnvState extends EnvInfo {
   credsExpiresAt?: number;
   /** Credentials could not be renewed silently; user must enter MFA before they expire */
   renewNeedsMfa?: boolean;
-  /** Cluster connection as reported by radar's /api/connection (only while status=ready) */
-  cluster?: ClusterHealth;
-  /** Last lines of radar output, for error display */
-  logTail?: string[];
+  /** Per-tool state, including whether this build can run the tool */
+  tools: Record<ToolKind, ToolState & ToolAvailability>;
 }
 
 export interface UpdateState {
@@ -84,6 +76,8 @@ export interface AppState {
   problems: string[];
   settingsPath: string;
   update: UpdateState;
+  /** Tool shown in the window (global: switching environment keeps it) */
+  activeTool: ToolKind;
 }
 
 export interface RadarDesktopApi {

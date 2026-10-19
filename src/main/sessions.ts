@@ -1,25 +1,33 @@
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AppState, ClusterHealth, EnvInfo, EnvState, UpdateState } from '../shared/types';
+import type { AppState, EnvInfo, EnvState, ToolAvailability, ToolKind, ToolState, UpdateState } from '../shared/types';
 import { CredentialServer, cleanAwsEnv, clearSessions, detectBackend, fetchCredentials, profileHasSession, type FetchResult } from './credentials';
 import { discoverEnvs, mergeKubeConfigs, parseAwsConfig, singleContextKubeConfig, type KubeConfig } from './discovery';
 import { awsConfigPath, effectivePath, kubeconfigPaths, resolveBinary, which } from './paths';
-import { RadarProcess } from './radar';
 import { loadSettings, type Settings } from './settings';
+import { RadarTool } from './tools/radar';
+import type { Tool, ToolContext } from './tools/tool';
 
 type Purpose = 'connect' | 'renew';
+export type ToolFactories = Partial<Record<ToolKind, (ctx: ToolContext) => Tool>>;
+
+export const TOOL_KINDS: ToolKind[] = ['radar', 'vault'];
+/** Shown for a tool this build can't run yet. */
+export const TOOL_UNAVAILABLE = 'Vault support is coming in a later version.';
 
 /** Start renewing this long before credentials expire, so there's time to answer an MFA prompt. */
 const RENEW_BEFORE_MS = 15 * 60_000;
 const MFA_ERROR = /MFA|one time pass code|MultiFactor|AccessDenied/i;
 
+/** One environment: its AWS credentials (shared) and the tools running on them. */
 class EnvSession {
-  state: EnvState;
-  radar?: RadarProcess;
+  state: Omit<EnvState, 'tools'>;
+  private tools = new Map<ToolKind, Tool>();
+  /** Last status pushed per tool, to notice a tool leaving `ready`. */
+  private lastToolStatus = new Map<ToolKind, ToolState['status']>();
   private purpose: Purpose = 'connect';
   private renewTimer?: NodeJS.Timeout;
-  private healthTimer?: NodeJS.Timeout;
   private expiryTimer?: NodeJS.Timeout;
   private cred?: { uri: string; token: string };
   /** The aws-vault call in progress; only one at a time, since an MFA code is single-use. */
@@ -31,8 +39,15 @@ class EnvSession {
     this.state = { ...info, status: 'idle' };
   }
 
-  get url(): string | undefined {
-    return this.state.status === 'ready' ? this.radar?.url : undefined;
+  snapshot(): EnvState {
+    const tools = {} as EnvState['tools'];
+    for (const kind of TOOL_KINDS) tools[kind] = { ...(this.tools.get(kind)?.state ?? { status: 'stopped' }), ...this.m.availability(kind) };
+    return { ...this.state, tools };
+  }
+
+  urlOf(kind: ToolKind): string | undefined {
+    const t = this.tools.get(kind);
+    return t?.state.status === 'ready' ? t.state.url : undefined;
   }
 
   private update(patch: Partial<EnvState>) {
@@ -43,7 +58,7 @@ class EnvSession {
   async connect(): Promise<void> {
     if (this.state.status !== 'idle' && this.state.status !== 'error') return;
     this.purpose = 'connect';
-    this.update({ status: 'checking', step: 'Checking aws-vault session…', message: undefined, logTail: undefined, prompt: undefined, promptError: undefined });
+    this.update({ status: 'checking', step: 'Checking aws-vault session…', message: undefined, prompt: undefined, promptError: undefined });
     await this.fetch();
   }
 
@@ -70,6 +85,73 @@ class EnvSession {
     if (this.state.status === 'ready') this.update({ prompt: undefined, promptError: undefined });
     else this.disconnect();
   }
+
+  // ------------------------------------------------------------------ tools
+
+  private toolContext(kind: ToolKind): ToolContext {
+    return {
+      env: this.state,
+      credentialEnv: () => this.credentialEnv(),
+      kubeconfig: () => this.m.writeEnvFiles(this.state),
+      settings: this.m.settings,
+      binaries: { radar: this.m.binaries.radar ? [this.m.binaries.radar] : undefined },
+      onChange: () => this.toolChanged(kind),
+      emit: (event) => this.m.emit(event, this.state.name, kind),
+    };
+  }
+
+  /** Env for tool processes: AWS credentials only via our credential endpoint, isolated from ~/.aws. */
+  private credentialEnv(): NodeJS.ProcessEnv {
+    const env = cleanAwsEnv(effectivePath());
+    const aws = join(this.m.dataDir, 'aws');
+    Object.assign(env, {
+      AWS_CONTAINER_CREDENTIALS_FULL_URI: this.cred!.uri,
+      AWS_CONTAINER_AUTHORIZATION_TOKEN: this.cred!.token,
+      // Isolate from ~/.aws so a [default] key or AWS_PROFILE can't take precedence over our credentials.
+      AWS_CONFIG_FILE: join(aws, `${this.state.name}.config`),
+      AWS_SHARED_CREDENTIALS_FILE: join(aws, 'credentials'),
+      KUBECONFIG: join(this.m.dataDir, 'kube', `${this.state.name}.yaml`),
+      INFRA_DESKTOP_ENV: this.state.name,
+    });
+    if (this.state.region) Object.assign(env, { AWS_REGION: this.state.region, AWS_DEFAULT_REGION: this.state.region });
+    return env;
+  }
+
+  private toolChanged(kind: ToolKind) {
+    const status = this.tools.get(kind)?.state.status ?? 'stopped';
+    const before = this.lastToolStatus.get(kind);
+    this.lastToolStatus.set(kind, status);
+    if (before === 'ready' && status !== 'ready') this.m.emit('stopped', this.state.name, kind);
+    this.m.emitState();
+  }
+
+  /** Start a tool for this env if credentials are ready and it isn't running yet. */
+  async ensureTool(kind: ToolKind): Promise<void> {
+    if (this.state.status !== 'ready' || !this.m.availability(kind).available) return;
+    let tool = this.tools.get(kind);
+    if (!tool) {
+      tool = this.m.toolFactories[kind]!(this.toolContext(kind));
+      this.tools.set(kind, tool);
+    }
+    if (tool.state.status === 'ready' || tool.state.status === 'starting') return;
+    await tool.start();
+    this.toolChanged(kind);
+    if (isReady(tool)) this.m.emit('ready', this.state.name, kind);
+  }
+
+  /** Restart a tool that failed, reusing the env's credentials. */
+  async retryTool(kind: ToolKind): Promise<void> {
+    this.tools.get(kind)?.stop();
+    await this.ensureTool(kind);
+  }
+
+  private stopTools() {
+    for (const t of this.tools.values()) t.stop();
+    this.tools.clear();
+    this.lastToolStatus.clear();
+  }
+
+  // ------------------------------------------------------------ credentials
 
   private fetch(mfaToken?: string): Promise<void> {
     if (this.inflight) return this.inflight.promise;
@@ -118,10 +200,11 @@ class EnvSession {
         }
         this.cred ??= this.m.credServer.register(this.state.name);
         this.m.credServer.set(this.state.name, r.creds);
-        this.update({ credsExpiresAt: expires, renewNeedsMfa: false, message: undefined });
+        const firstCredentials = this.state.status !== 'ready';
+        this.update({ status: 'ready', step: undefined, credsExpiresAt: expires, renewNeedsMfa: false, message: undefined });
         this.scheduleRenew(expires);
-        if (this.purpose === 'connect' && !this.radar) await this.startRadar();
-        else void this.reconnectRadar();
+        if (firstCredentials) await this.ensureTool(this.m.activeTool);
+        else await Promise.all([...this.tools.values()].filter((t) => t.state.status === 'ready').map((t) => t.onCredentialsRenewed()));
         return;
       }
       case 'need-mfa':
@@ -133,7 +216,7 @@ class EnvSession {
       case 'error':
         if (triedMfa && MFA_ERROR.test(r.message)) return this.update({ prompt: 'mfa', promptError: r.message });
         if (this.state.status === 'ready') {
-          // Keep radar running on the old credentials and try again shortly.
+          // Keep the tools running on the old credentials and try again shortly.
           this.update({ message: `Credential renewal failed: ${r.message}` });
           this.renewTimer = setTimeout(() => this.silentRenew(), 60_000);
           return;
@@ -167,121 +250,21 @@ class EnvSession {
     await this.fetch();
   }
 
-  private async startRadar(): Promise<void> {
-    const b = this.m.binaries;
-    if (!b.radar) return this.fail('radar (kubectl-radar) not found. Install it or set radarPath in settings.');
-    this.update({ status: 'connecting', step: 'Starting radar…' });
-
-    let kubeconfig: string;
-    try {
-      kubeconfig = this.m.writeEnvFiles(this.state);
-    } catch (e) {
-      return this.fail(`Could not write kubeconfig: ${(e as Error).message}`);
-    }
-
-    const env = cleanAwsEnv(effectivePath());
-    const aws = join(this.m.dataDir, 'aws');
-    Object.assign(env, {
-      AWS_CONTAINER_CREDENTIALS_FULL_URI: this.cred!.uri,
-      AWS_CONTAINER_AUTHORIZATION_TOKEN: this.cred!.token,
-      // Isolate from ~/.aws so a [default] key or AWS_PROFILE can't take precedence over our credentials.
-      AWS_CONFIG_FILE: join(aws, `${this.state.name}.config`),
-      AWS_SHARED_CREDENTIALS_FILE: join(aws, 'credentials'),
-      AWS_REGION: this.state.region ?? '',
-      AWS_DEFAULT_REGION: this.state.region ?? '',
-      KUBECONFIG: kubeconfig,
-      INFRA_DESKTOP_ENV: this.state.name,
-    });
-    if (!this.state.region) {
-      delete env.AWS_REGION;
-      delete env.AWS_DEFAULT_REGION;
-    }
-
-    const radar = new RadarProcess({
-      command: [b.radar],
-      kubeconfig,
-      env,
-      extraArgs: this.m.settings.radarArgs ?? [],
-      port: this.state.port,
-      onExit: (code, log) => {
-        if (this.radar !== radar) return;
-        this.radar = undefined;
-        this.fail(`radar exited unexpectedly (code ${code})`, log.slice(-40));
-      },
-    });
-    this.radar = radar;
-    try {
-      await radar.start();
-      this.update({ step: 'Waiting for radar…' });
-      await radar.waitReady();
-    } catch (e) {
-      if (this.radar !== radar) return;
-      radar.stop();
-      this.radar = undefined;
-      return this.fail((e as Error).message, radar.log.slice(-40));
-    }
-    if (this.radar !== radar) return;
-    this.update({ status: 'ready', step: undefined });
-    this.m.emit('ready', this.state.name);
-    await this.checkHealth();
-  }
-
-/**
-   * After new credentials, make radar retry right away if it lost the cluster (e.g. they had expired):
-   * radar's own background re-check can take a long time, and its page waits for that.
-   */
-  private async reconnectRadar(): Promise<void> {
-    const radar = this.radar;
-    const wasDown = !!this.state.cluster && this.state.cluster.state !== 'connected';
-    if (radar && wasDown) {
-      this.update({ cluster: { state: 'connecting' } });
-      try {
-        await fetch(`${radar.url}api/connection/retry`, { method: 'POST', signal: AbortSignal.timeout(30_000) });
-      } catch {
-        /* the health check below reports the outcome */
-      }
-    }
-    await this.checkHealth();
-    // Its page may still show the error screen; reload it once the cluster is back.
-    if (wasDown && this.state.cluster?.state === 'connected') this.m.emit('reload-view', this.state.name);
-  }
-
-  /** Ask radar whether it can actually reach the cluster; credentials being valid doesn't mean it can. */
-  private async checkHealth(): Promise<void> {
-    clearTimeout(this.healthTimer);
-    const radar = this.radar;
-    if (!radar || this.state.status !== 'ready') return;
-    let health: ClusterHealth;
-    try {
-      const res = await fetch(`${radar.url}api/connection?contexts=0`, { signal: AbortSignal.timeout(5000) });
-      const body = (await res.json()) as { state?: string; error?: string; errorType?: string };
-      health = { state: body.state ?? 'unknown', error: body.error || undefined, errorType: body.errorType || undefined };
-    } catch (e) {
-      health = { state: 'unknown', error: `Could not read radar connection status: ${(e as Error).message}` };
-    }
-    if (this.radar !== radar) return;
-    if (JSON.stringify(health) !== JSON.stringify(this.state.cluster)) this.update({ cluster: health });
-    this.healthTimer = setTimeout(() => void this.checkHealth(), health.state === 'connected' ? 15_000 : 5_000);
-  }
-
-  private fail(message: string, logTail?: string[]) {
+  /** Credentials could not be obtained: nothing can run without them. */
+  private fail(message: string) {
     clearTimeout(this.renewTimer);
     clearTimeout(this.expiryTimer);
-    clearTimeout(this.healthTimer);
-    this.radar?.stop();
-    this.radar = undefined;
-    this.update({ status: 'error', message, logTail, step: undefined, prompt: undefined, cluster: undefined });
+    this.stopTools();
+    this.update({ status: 'error', message, step: undefined, prompt: undefined });
     this.m.emit('stopped', this.state.name);
   }
 
   disconnect(): void {
     clearTimeout(this.expiryTimer);
+    clearTimeout(this.renewTimer);
     this.generation++;
     this.inflight = undefined;
-    clearTimeout(this.renewTimer);
-    clearTimeout(this.healthTimer);
-    this.radar?.stop();
-    this.radar = undefined;
+    this.stopTools();
     if (this.cred) this.m.credServer.unregister(this.state.name);
     this.cred = undefined;
     this.state = { ...pickInfo(this.state), status: 'idle' };
@@ -290,7 +273,10 @@ class EnvSession {
   }
 }
 
-function pickInfo(s: EnvState): EnvInfo {
+/** A function, so TS doesn't keep a status narrowed from before an await. */
+const isReady = (t: Tool) => t.state.status === 'ready';
+
+function pickInfo(s: EnvInfo): EnvInfo {
   const { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName, port } = s;
   return { name, label, color, profile, sourceProfile, roleArn, region, context, clusterName, port };
 }
@@ -300,21 +286,31 @@ export class EnvManager extends EventEmitter {
   binaries: { awsVault?: string; radar?: string; aws?: string } = {};
   passphrase?: string;
   readonly credServer = new CredentialServer();
+  readonly toolFactories: ToolFactories;
   private sessions = new Map<string, EnvSession>();
   private problems: string[] = [];
   private kube: KubeConfig = {};
   private backend?: Promise<string | undefined>;
   active: string | null = null;
+  activeTool: ToolKind = 'radar';
   update: UpdateState = { status: 'disabled', current: '' };
 
-  constructor(readonly dataDir: string) {
+  constructor(
+    readonly dataDir: string,
+    toolFactories: ToolFactories = { radar: (ctx) => new RadarTool(ctx) },
+  ) {
     super();
+    this.toolFactories = toolFactories;
     for (const d of ['kube', 'aws']) mkdirSync(join(dataDir, d), { recursive: true });
     writeFileSync(join(dataDir, 'aws', 'credentials'), '');
   }
 
   get settingsPath(): string {
     return join(this.dataDir, 'settings.json');
+  }
+
+  availability(kind: ToolKind): ToolAvailability {
+    return this.toolFactories[kind] ? { available: true } : { available: false, reason: TOOL_UNAVAILABLE };
   }
 
   async init(): Promise<void> {
@@ -380,7 +376,7 @@ export class EnvManager extends EventEmitter {
   }
 
   /** Writes the single-context kubeconfig and isolated AWS config for an env; returns the kubeconfig path. */
-  writeEnvFiles(env: EnvState): string {
+  writeEnvFiles(env: EnvInfo): string {
     const kubeFile = join(this.dataDir, 'kube', `${env.name}.yaml`);
     writeFileSync(kubeFile, singleContextKubeConfig(this.kube, env.context), { mode: 0o600 });
     writeFileSync(join(this.dataDir, 'aws', `${env.name}.config`), env.region ? `[default]\nregion = ${env.region}\n` : '');
@@ -399,6 +395,7 @@ export class EnvManager extends EventEmitter {
     this.emitState();
     this.emit('activate', name);
     await s.connect();
+    await s.ensureTool(this.activeTool);
   }
 
   async submitPassphrase(name: string, passphrase: string): Promise<void> {
@@ -406,17 +403,18 @@ export class EnvManager extends EventEmitter {
     await this.session(name).afterPassphrase();
   }
 
-  urlOf(name: string): string | undefined {
-    return this.sessions.get(name)?.url;
+  urlOf(name: string, kind: ToolKind): string | undefined {
+    return this.sessions.get(name)?.urlOf(kind);
   }
 
   getState(): AppState {
     return {
-      envs: [...this.sessions.values()].map((s) => ({ ...s.state })),
+      envs: [...this.sessions.values()].map((s) => s.snapshot()),
       active: this.active,
       problems: this.problems,
       settingsPath: this.settingsPath,
       update: this.update,
+      activeTool: this.activeTool,
     };
   }
 

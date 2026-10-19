@@ -174,7 +174,7 @@ async function main() {
     updateTitle();
   });
   manager.on('ready', (name: string) => {
-    const url = manager.urlOf(name);
+    const url = manager.urlOf(name, 'radar');
     if (url && !views.has(name)) createView(name, url);
     layout();
   });

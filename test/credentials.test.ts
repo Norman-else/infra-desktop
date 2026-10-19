@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -8,8 +8,10 @@ import { CredentialServer, fetchCredentials } from '../src/main/credentials';
 import { effectivePath, which } from '../src/main/paths';
 
 const fake = join(__dirname, 'fake-aws-vault', process.platform === 'win32' ? 'fake-aws-vault.exe' : 'fake-aws-vault');
-const session = join(tmpdir(), 'fake-aws-vault-session');
-const usedCodes = join(tmpdir(), 'fake-aws-vault-used');
+// Own fake aws-vault state per test file: files run in parallel workers.
+process.env.FAKE_AWS_VAULT_DIR = mkdtempSync(join(tmpdir(), 'fake-aws-vault-'));
+const session = join(process.env.FAKE_AWS_VAULT_DIR, 'fake-aws-vault-session');
+const usedCodes = join(process.env.FAKE_AWS_VAULT_DIR, 'fake-aws-vault-used');
 
 describe.skipIf(!existsSync(fake))('fetchCredentials (fake aws-vault)', () => {
   beforeAll(() => {

@@ -19,10 +19,19 @@ import (
 	"time"
 )
 
+// FAKE_AWS_VAULT_DIR keeps state per test run (default: the temp dir).
 var (
-	sessionFile = filepath.Join(os.TempDir(), "fake-aws-vault-session")
-	usedFile    = filepath.Join(os.TempDir(), "fake-aws-vault-used")
+	stateDir    = stateDirectory()
+	sessionFile = filepath.Join(stateDir, "fake-aws-vault-session")
+	usedFile    = filepath.Join(stateDir, "fake-aws-vault-used")
 )
+
+func stateDirectory() string {
+	if d := os.Getenv("FAKE_AWS_VAULT_DIR"); d != "" {
+		return d
+	}
+	return os.TempDir()
+}
 
 const mfaError = "aws-vault: error: exec: Failed to get credentials for root: operation error STS: AssumeRole, api error AccessDenied: MultiFactorAuthentication failed with invalid MFA one time pass code."
 
