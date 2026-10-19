@@ -98,7 +98,7 @@ describe('VaultTool', () => {
     await tool.start();
     expect(tool.state.status).toBe('error');
     expect(tool.state.message).toContain(`Port ${port} is already in use`);
-  });
+  }, 30_000); // checking who holds the port runs PowerShell on Windows, which is slow on CI
 });
 
 describe('vaultProcessEnv', () => {
