@@ -1,8 +1,8 @@
 {
-  "name": "radar-desktop",
-  "productName": "Radar Desktop",
+  "name": "infra-desktop",
+  "productName": "Infra Desktop",
   "version": "0.1.11",
-  "description": "Desktop wrapper for Radar: switch AWS environments with aws-vault + MFA and browse clusters in-app",
+  "description": "Desktop app for Radar and Vault per environment: switch AWS environments with aws-vault + MFA once and use both in-app",
   "main": "dist/main.js",
   "private": true,
   "scripts": {
@@ -32,7 +32,7 @@
   },
   "build": {
     "appId": "io.radar.desktop",
-    "productName": "Radar Desktop",
+    "productName": "Infra Desktop",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -62,7 +62,7 @@
       "identity": "-",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "artifactName": "Radar-Desktop-${version}-${arch}.${ext}"
+      "artifactName": "Infra-Desktop-${version}-${arch}.${ext}"
     },
     "win": {
       "target": [
@@ -79,19 +79,19 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "artifactName": "Radar-Desktop-Setup-${version}-${arch}.${ext}"
+      "artifactName": "Infra-Desktop-Setup-${version}-${arch}.${ext}"
     },
     "publish": [
       {
         "provider": "github",
         "owner": "Norman-else",
-        "repo": "radar-desktop",
+        "repo": "infra-desktop",
         "releaseType": "draft"
       }
     ]
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Norman-else/radar-desktop.git"
+    "url": "https://github.com/Norman-else/infra-desktop.git"
   }
 }

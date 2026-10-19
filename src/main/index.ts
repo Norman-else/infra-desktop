@@ -63,7 +63,7 @@ function layout() {
 function updateTitle() {
   if (!win || win.isDestroyed()) return;
   const env = manager.getState().envs.find((e) => e.name === manager.active);
-  win.setTitle(env ? `${env.label} · ${env.clusterName} — Radar Desktop` : 'Radar Desktop');
+  win.setTitle(env ? `${env.label} · ${env.clusterName} — Infra Desktop` : 'Infra Desktop');
 }
 
 /** Desktop notification for an env whose credentials need MFA; clicking it opens the MFA prompt there. */
@@ -201,7 +201,7 @@ async function main() {
     height: 920,
     minWidth: 900,
     minHeight: 600,
-    title: 'Radar Desktop',
+    title: 'Infra Desktop',
     backgroundColor: '#1b1c20',
     // Windows/Linux: keep the menu (and its shortcuts) but only show it while Alt is pressed.
     autoHideMenuBar: true,

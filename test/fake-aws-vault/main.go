@@ -1,4 +1,4 @@
-// Fake aws-vault for manually testing Radar Desktop without real AWS keys.
+// Fake aws-vault for manually testing Infra Desktop without real AWS keys.
 // Supports:
 //
 //	list                                         - table like aws-vault list, with the cached session if any

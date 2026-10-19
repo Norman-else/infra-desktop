@@ -1,4 +1,6 @@
-# Radar Desktop
+# Infra Desktop
+
+> 0.2.0 起由 Radar Desktop 改名为 Infra Desktop（仓库 Norman-else/infra-desktop）。已安装的 Radar Desktop 会原地更新，设置会自动从 `Radar Desktop` 数据目录迁移过来，旧目录保留不动。
 
 用桌面应用打开 [Radar](https://github.com/skyhook-io/radar)：选环境 → 输入 MFA → radar 页面直接显示在窗口里。不用再手动 `aws-vault exec … -- kubectl radar`。支持 Windows 和 macOS。
 
@@ -38,7 +40,7 @@ npm start
 已安装的应用启动 10 秒后会检查一次更新，之后每 30 分钟检查一次，窗口获得焦点时（距上次检查超过 10 分钟）也会检查；也可以在菜单「环境 → 检查更新」手动检查。新版本会在后台下载，下载完顶栏出现「新版本 · 重启更新」按钮，点了就会安装并重启。
 
 - **Windows**：使用 electron-updater（NSIS）。
-- **macOS**：应用只有 ad-hoc 签名，系统自带的更新机制不接受，所以应用会自己下载 `.zip`、校验 sha512，退出后替换 `/Applications/Radar Desktop.app` 再重新打开。
+- **macOS**：应用只有 ad-hoc 签名，系统自带的更新机制不接受，所以应用会自己下载 `.zip`、校验 sha512，退出后替换 `/Applications/Infra Desktop.app` 再重新打开。
 
 安装包没有用付费证书签名（mac 是 ad-hoc 签名），所以首次打开会被系统拦一下：
 
@@ -46,7 +48,7 @@ npm start
 - **macOS**：把应用拖进「应用程序」后右键 → 打开；如果提示「已损坏」，在终端运行：
 
 ```bash
-xattr -cr "/Applications/Radar Desktop.app"
+xattr -cr "/Applications/Infra Desktop.app"
 ```
 
 ## 使用
@@ -97,4 +99,4 @@ npm test
 npm run typecheck
 ```
 
-`test/fake-aws-vault` 是一个假的 aws-vault（`go build` 后使用），可以在没有真实 AWS key 的机器上走完整流程。先在 `settings.json` 里把 `awsVaultPath` 指向它；需要 MFA 时输入 `000000` 会被拒绝，其他 6 位数字会被接受。用 `RADAR_DESKTOP_DATA_DIR=<目录>` 可以让测试运行使用独立的设置目录。
+`test/fake-aws-vault` 是一个假的 aws-vault（`go build` 后使用），可以在没有真实 AWS key 的机器上走完整流程。先在 `settings.json` 里把 `awsVaultPath` 指向它；需要 MFA 时输入 `000000` 会被拒绝，其他 6 位数字会被接受。用 `INFRA_DESKTOP_DATA_DIR=<目录>` 可以让测试运行使用独立的设置目录。

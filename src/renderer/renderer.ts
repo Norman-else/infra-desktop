@@ -241,7 +241,7 @@ function versionHtml(): string {
     error: 'update check failed',
   };
   const st = label[u.status] ?? '';
-  return `Radar Desktop v${esc(u.current)}${st ? ` · ${esc(st)}` : ''}`;
+  return `Infra Desktop v${esc(u.current)}${st ? ` · ${esc(st)}` : ''}`;
 }
 
 function promptHtml(e: EnvState) {
