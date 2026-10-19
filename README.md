@@ -55,9 +55,18 @@ xattr -cr "/Applications/Infra Desktop.app"
 
 - 顶栏颜色就是当前环境（dev 绿 / sat 橙 / prod 红），显示集群名、集群连接状态和 AWS 凭证剩余时间。
 - `Ctrl+Shift+E`（macOS `⇧⌘E`）或点「切换环境」打开环境列表，数字键 1-9 直接切换。（`Ctrl+K` 留给 radar 自己的搜索。）
-- 顶栏有 **Radar | Vault** 切换（`Ctrl+Shift+R` / `Ctrl+Shift+V`，macOS 为 `⇧⌘R` / `⇧⌘V`）。同一个环境只输一次 MFA，两个工具共用凭证。Vault 将在后续版本接入，目前是灰色的。
+- 顶栏有 **Radar | Vault** 切换（`Ctrl+Shift+R` / `Ctrl+Shift+V`，macOS 为 `⇧⌘R` / `⇧⌘V`）。同一个环境只输一次 MFA，两个工具共用凭证。
 - 某个工具启动失败时只影响它自己：凭证保留，点 Retry 重新启动该工具，不用再输 MFA。
 - 切换过的环境的 radar 会留在后台，切回来是秒开；不用的可以在列表里点「断开」。
+
+## Vault
+
+顶栏切到 **Vault** 就会在当前环境打开 [vault-mcp](https://github.com/Norman-else/vault-mcp) 的 Web UI，和 Radar 共用同一份 AWS 凭证：不用再输 MFA，不依赖 Claude 是否打开，也不会改你全局的 kubectl context。凭证续期后 Vault 会自动重新登录。
+
+- 需要本机有 vault-mcp 的 checkout（含 `.venv`，并且支持独立模式：`python -m vault_mcp.web_ui --version` 输出 `vault-mcp-web-ui standalone 1`）。Windows 默认用 `K:/MCP/vault-mcp`，其他位置在设置里写 `vaultMcpPath`（以及可选的 `vaultPython`）。
+- 每个环境的 Vault 地址、header、role、region 直接读取 `~/.claude.json` 里 `vault` MCP server 的 `VAULT_ADDR_<ENV>` / `VAULT_HEADER_<ENV>` / `VAULT_ROLE_<ENV>` / `AWS_REGION_<ENV>`（只读这几项），也可以在设置里用 `envs.<profile>.vault` 覆盖：`{ "addr", "header", "role", "env", "port" }`。
+- Vault 端口默认是 radar 端口 + 10：dev 9291、sat 9292、prod 9293。
+- 某个环境找不到 Vault 地址、或者 vault-mcp 不可用时，Vault 按钮是灰的，鼠标悬停能看到原因。
 
 ## 工作方式
 

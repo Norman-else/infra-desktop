@@ -61,6 +61,12 @@ describe('VaultTool', () => {
     expect(tool.state.health).toEqual({ state: 'pending', text: 'Signing in to Vault' });
   });
 
+  it('treats an unreachable UI right after start as starting', async () => {
+    const { tool } = await makeTool({ FAKE_VAULT_STATE: 'authenticated', FAKE_VAULT_READY_EARLY: '1' });
+    await tool.start();
+    expect(tool.state.health).toEqual({ state: 'pending', text: 'Starting Vault' });
+  });
+
   it('renewal signs Vault in again', async () => {
     const log = join(mkdtempSync(join(tmpdir(), 'vault-log-')), 'requests.log');
     const { tool } = await makeTool({ FAKE_VAULT_STATE: 'unauthenticated', FAKE_VAULT_LOGIN_FIXES: '1', FAKE_VAULT_LOG: log });

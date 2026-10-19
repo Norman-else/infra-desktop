@@ -162,7 +162,11 @@ export class VaultTool implements Tool {
       const res = await fetch(`${url}api/health`, { signal: AbortSignal.timeout(5000) });
       health = vaultHealth((await res.json()) as { vault?: string; message?: string }, Date.now() - this.loginAt);
     } catch (e) {
-      health = { state: 'failed', text: 'Vault UI not responding', detail: (e as Error).message };
+      // vault-mcp prints its ready line just before its server accepts connections.
+      health =
+        Date.now() - this.loginAt < SIGN_IN_GRACE_MS
+          ? { state: 'pending', text: 'Starting Vault' }
+          : { state: 'failed', text: 'Vault UI not responding', detail: (e as Error).message };
     }
     if (this.state.url !== url) return;
     if (JSON.stringify(health) !== JSON.stringify(this.state.health)) this.update({ health });

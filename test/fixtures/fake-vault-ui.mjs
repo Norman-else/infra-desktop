@@ -29,4 +29,8 @@ server.on('error', () => {
   console.error(`Port ${port} is already in use`);
   process.exit(2);
 });
-server.listen(port, '127.0.0.1', () => console.log(`VAULT_WEB_UI_READY http://127.0.0.1:${port}`));
+if (process.env.FAKE_VAULT_READY_EARLY === '1') {
+  // Like vault-mcp: the ready line can come just before the server accepts connections.
+  console.log(`VAULT_WEB_UI_READY http://127.0.0.1:${port}`);
+  setTimeout(() => server.listen(port, '127.0.0.1'), 1500);
+} else server.listen(port, '127.0.0.1', () => console.log(`VAULT_WEB_UI_READY http://127.0.0.1:${port}`));

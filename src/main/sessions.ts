@@ -8,6 +8,9 @@ import { awsConfigPath, effectivePath, kubeconfigPaths, resolveBinary, which } f
 import { loadSettings, type Settings } from './settings';
 import { RadarTool } from './tools/radar';
 import type { Tool, ToolContext } from './tools/tool';
+import { VaultTool } from './tools/vault';
+import { readClaudeVaultEnv, resolveVaultConfig, type VaultEnvConfig } from './vault-config';
+import { detectVaultMcp, type VaultMcp } from './vault-mcp';
 
 type Purpose = 'connect' | 'renew';
 export type ToolFactories = Partial<Record<ToolKind, (ctx: ToolContext) => Tool>>;
@@ -41,7 +44,7 @@ class EnvSession {
 
   snapshot(): EnvState {
     const tools = {} as EnvState['tools'];
-    for (const kind of TOOL_KINDS) tools[kind] = { ...(this.tools.get(kind)?.state ?? { status: 'stopped' }), ...this.m.availability(kind) };
+    for (const kind of TOOL_KINDS) tools[kind] = { ...(this.tools.get(kind)?.state ?? { status: 'stopped' }), ...this.m.availability(kind, this.state.name) };
     return { ...this.state, tools };
   }
 
@@ -95,6 +98,7 @@ class EnvSession {
       kubeconfig: () => this.m.writeEnvFiles(this.state),
       settings: this.m.settings,
       binaries: { radar: this.m.binaries.radar ? [this.m.binaries.radar] : undefined },
+      vault: kind === 'vault' && this.m.vaultMcp?.ok ? { mcp: this.m.vaultMcp, config: this.m.vaultConfig(this.state) } : undefined,
       onChange: () => this.toolChanged(kind),
       emit: (event) => this.m.emit(event, this.state.name, kind),
     };
@@ -127,7 +131,7 @@ class EnvSession {
 
   /** Start a tool for this env if credentials are ready and it isn't running yet. */
   async ensureTool(kind: ToolKind): Promise<void> {
-    if (this.state.status !== 'ready' || !this.m.availability(kind).available) return;
+    if (this.state.status !== 'ready' || !this.m.availability(kind, this.state.name).available) return;
     let tool = this.tools.get(kind);
     if (!tool) {
       tool = this.m.toolFactories[kind]!(this.toolContext(kind));
@@ -295,9 +299,15 @@ export class EnvManager extends EventEmitter {
   activeTool: ToolKind = 'radar';
   update: UpdateState = { status: 'disabled', current: '' };
 
+  /** vault-mcp checkout and whether it supports standalone mode; undefined while being detected */
+  vaultMcp?: VaultMcp;
+  private vaultDetection: Promise<void> = Promise.resolve();
+  private claudeVaultEnv: Record<string, string> = {};
+
   constructor(
     readonly dataDir: string,
-    toolFactories: ToolFactories = { radar: (ctx) => new RadarTool(ctx) },
+    toolFactories: ToolFactories = { radar: (ctx) => new RadarTool(ctx), vault: (ctx) => new VaultTool(ctx) },
+    private options: { detectVault?: (settings: Settings) => Promise<VaultMcp>; claudeJsonPath?: string } = {},
   ) {
     super();
     this.toolFactories = toolFactories;
@@ -309,8 +319,26 @@ export class EnvManager extends EventEmitter {
     return join(this.dataDir, 'settings.json');
   }
 
-  availability(kind: ToolKind): ToolAvailability {
-    return this.toolFactories[kind] ? { available: true } : { available: false, reason: TOOL_UNAVAILABLE };
+  /** Whether a tool can run (for one env when given: Vault also needs that env's Vault address). */
+  availability(kind: ToolKind, env?: string): ToolAvailability {
+    if (!this.toolFactories[kind]) return { available: false, reason: TOOL_UNAVAILABLE };
+    if (kind !== 'vault') return { available: true };
+    if (!this.vaultMcp) return { available: false, reason: 'Checking vault-mcp…' };
+    if (!this.vaultMcp.ok) return { available: false, reason: this.vaultMcp.reason };
+    const session = env ? this.sessions.get(env) : undefined;
+    if (session && !this.vaultConfig(session.state).addr)
+      return { available: false, reason: `No Vault address for ${session.state.label}. Add it to the vault MCP server or settings.` };
+    return { available: true };
+  }
+
+  /** The env's Vault settings: settings override, else the vault MCP server's values. */
+  vaultConfig(env: EnvInfo): VaultEnvConfig {
+    return resolveVaultConfig(env, this.settings.envs?.[env.profile]?.vault, this.claudeVaultEnv);
+  }
+
+  /** Resolves when the vault-mcp detection started by the last reload has finished. */
+  vaultReady(): Promise<void> {
+    return this.vaultDetection;
   }
 
   async init(): Promise<void> {
@@ -364,6 +392,18 @@ export class EnvManager extends EventEmitter {
     for (const [name, sess] of this.sessions) if (!next.has(name)) sess.disconnect();
     this.sessions = next;
     if (this.active && !next.has(this.active)) this.active = null;
+
+    this.claudeVaultEnv = readClaudeVaultEnv(this.options.claudeJsonPath);
+    if (this.toolFactories.vault) {
+      this.vaultMcp = undefined;
+      const detect = this.options.detectVault ?? detectVaultMcp;
+      const settings = this.settings;
+      this.vaultDetection = detect(settings).then((r) => {
+        if (this.settings !== settings) return; // a newer reload is detecting
+        this.vaultMcp = r;
+        this.emitState();
+      });
+    }
     this.emitState();
   }
 
@@ -400,7 +440,7 @@ export class EnvManager extends EventEmitter {
 
   /** Show another tool; ignored when this build can't run it. */
   async setTool(kind: ToolKind): Promise<void> {
-    if (!this.availability(kind).available) return;
+    if (!this.availability(kind, this.active ?? undefined).available) return;
     this.activeTool = kind;
     this.emitState();
     this.emit('activate', this.active);
