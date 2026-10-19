@@ -142,6 +142,7 @@ function registerIpc() {
   ipcMain.handle('env:cancel', (_e, env: string) => manager.session(env).cancel());
   ipcMain.handle('env:disconnect', (_e, env: string) => manager.session(env).disconnect());
   ipcMain.handle('tool:set', (_e, tool: ToolKind) => manager.setTool(tool));
+  ipcMain.handle('vault:configure', (_e, env: string, vault: { addr: string; header?: string; role?: string }) => manager.saveVaultConfig(env, vault));
   ipcMain.handle('overlay:open', async () => {
     const view = activeView();
     let shot: string | null = null;

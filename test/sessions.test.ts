@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import YAML from 'yaml';
@@ -158,6 +158,10 @@ describe('EnvManager default tools', () => {
 });
 
 describe('Vault availability', () => {
+  const savedAwsConfig = process.env.AWS_CONFIG_FILE;
+  afterEach(() => {
+    process.env.AWS_CONFIG_FILE = savedAwsConfig;
+  });
   const setup = async (detect: () => Promise<import('../src/main/vault-mcp').VaultMcp>) => {
     const dir = mkdtempSync(join(tmpdir(), 'vault-avail-'));
     const ctx = (acct: string, name: string) => {
@@ -170,20 +174,36 @@ describe('Vault availability', () => {
     writeFileSync(join(dir, 'aws-config'), '[default]\nregion = us-west-2\n[profile dev]\nrole_arn = arn:aws:iam::222222222222:role/ops\n[profile sat]\nrole_arn = arn:aws:iam::333333333333:role/ops\n');
     writeFileSync(join(dir, 'claude.json'), JSON.stringify({ mcpServers: { vault: { env: { VAULT_ADDR_DEV: 'https://vault.dev.example' } } } }));
     writeFileSync(join(dir, 'settings.json'), JSON.stringify({ kubeconfig: join(dir, 'kubeconfig') }));
-    const old = process.env.AWS_CONFIG_FILE;
     process.env.AWS_CONFIG_FILE = join(dir, 'aws-config');
     const m = new EnvManager(dir, undefined, { detectVault: detect, claudeJsonPath: join(dir, 'claude.json') });
     await m.init();
     await m.vaultReady();
-    process.env.AWS_CONFIG_FILE = old;
     return m;
   };
 
-  it('vault availability is per environment', async () => {
-    const m = await setup(async () => ({ ok: true, source: 'uvx', command: ['uvx'], env: {}, startTimeoutMs: 300_000 }));
+  const uvx = async () => ({ ok: true as const, source: 'uvx' as const, command: ['uvx'], env: {}, startTimeoutMs: 300_000 });
+
+  it('missing address means setup, not unavailable', async () => {
+    const m = await setup(uvx);
     expect(m.availability('vault', 'dev')).toEqual({ available: true });
-    expect(m.availability('vault', 'sat')).toEqual({ available: false, reason: 'No Vault address for SAT. Add it to the vault MCP server or settings.' });
-    expect(m.getState().envs.find((e) => e.name === 'sat')!.tools.vault.available).toBe(false);
+    expect(m.availability('vault', 'sat')).toEqual({ available: true, setup: 'vault' });
+    expect(m.getState().envs.find((e) => e.name === 'sat')!.tools.vault.setup).toBe('vault');
+    m.shutdown();
+  });
+
+  it('rejects an address without a scheme', async () => {
+    const m = await setup(uvx);
+    const before = readFileSync(m.settingsPath, 'utf8');
+    expect(await m.saveVaultConfig('sat', { addr: 'vault.sat.example' })).toEqual({ ok: false, error: 'Address must start with https:// or http://' });
+    expect(readFileSync(m.settingsPath, 'utf8')).toBe(before);
+    m.shutdown();
+  });
+
+  it('after saving, Vault becomes available for that env', async () => {
+    const m = await setup(uvx);
+    expect(await m.saveVaultConfig('sat', { addr: 'https://vault.sat.example', role: 'vault_admin' })).toEqual({ ok: true });
+    expect(m.availability('vault', 'sat')).toEqual({ available: true });
+    expect(m.vaultConfig(m.getState().envs.find((e) => e.name === 'sat')!).role).toBe('vault_admin');
     m.shutdown();
   });
 

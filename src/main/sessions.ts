@@ -5,7 +5,7 @@ import type { AppState, EnvInfo, EnvState, ToolAvailability, ToolKind, ToolState
 import { CredentialServer, cleanAwsEnv, clearSessions, detectBackend, fetchCredentials, profileHasSession, type FetchResult } from './credentials';
 import { discoverEnvs, mergeKubeConfigs, parseAwsConfig, singleContextKubeConfig, type KubeConfig } from './discovery';
 import { awsConfigPath, effectivePath, kubeconfigPaths, resolveBinary, which } from './paths';
-import { loadSettings, type Settings } from './settings';
+import { loadSettings, saveEnvVault, type Settings } from './settings';
 import { RadarTool } from './tools/radar';
 import type { Tool, ToolContext } from './tools/tool';
 import { VaultTool } from './tools/vault';
@@ -131,7 +131,8 @@ class EnvSession {
 
   /** Start a tool for this env if credentials are ready and it isn't running yet. */
   async ensureTool(kind: ToolKind): Promise<void> {
-    if (this.state.status !== 'ready' || !this.m.availability(kind, this.state.name).available) return;
+    const availability = this.m.availability(kind, this.state.name);
+    if (this.state.status !== 'ready' || !availability.available || availability.setup) return;
     let tool = this.tools.get(kind);
     if (!tool) {
       tool = this.m.toolFactories[kind]!(this.toolContext(kind));
@@ -326,14 +327,39 @@ export class EnvManager extends EventEmitter {
     if (!this.vaultMcp) return { available: false, reason: 'Checking vault-mcp…' };
     if (!this.vaultMcp.ok) return { available: false, reason: this.vaultMcp.reason };
     const session = env ? this.sessions.get(env) : undefined;
-    if (session && !this.vaultConfig(session.state).addr)
-      return { available: false, reason: `No Vault address for ${session.state.label}. Add it to the vault MCP server or settings.` };
+    // No address yet: the Vault page shows a setup form instead of being disabled.
+    if (session && !this.vaultConfig(session.state).addr) return { available: true, setup: 'vault' };
     return { available: true };
   }
 
   /** The env's Vault settings: settings override, else the vault MCP server's values. */
   vaultConfig(env: EnvInfo): VaultEnvConfig {
     return resolveVaultConfig(env, this.settings.envs?.[env.profile]?.vault, this.claudeVaultEnv);
+  }
+
+  /** Save an env's Vault settings from the setup form, reload, and start Vault if it is being shown. */
+  async saveVaultConfig(env: string, vault: { addr: string; header?: string; role?: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+    const session = this.sessions.get(env);
+    if (!session) return { ok: false, error: `Unknown environment ${env}` };
+    const addr = vault.addr.trim();
+    if (!/^https?:\/\//.test(addr)) return { ok: false, error: 'Address must start with https:// or http://' };
+    try {
+      new URL(addr);
+    } catch {
+      return { ok: false, error: 'Address is not a valid URL' };
+    }
+    const value: { addr: string; header?: string; role?: string } = { addr };
+    if (vault.header?.trim()) value.header = vault.header.trim();
+    if (vault.role?.trim()) value.role = vault.role.trim();
+    try {
+      saveEnvVault(this.settingsPath, session.state.profile, value);
+    } catch (e) {
+      return { ok: false, error: `Could not save settings: ${(e as Error).message}` };
+    }
+    this.reload();
+    await this.vaultReady();
+    if (this.active === env && this.activeTool === 'vault') await this.session(env).ensureTool('vault');
+    return { ok: true };
   }
 
   /** Resolves when the vault-mcp detection started by the last reload has finished. */

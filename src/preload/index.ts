@@ -7,6 +7,7 @@ const api: RadarDesktopApi = {
   onCommand: (cb) => ipcRenderer.on('command', (_e, cmd: string) => cb(cmd)),
   switchTo: (env) => ipcRenderer.invoke('env:switch', env),
   setTool: (tool) => ipcRenderer.invoke('tool:set', tool),
+  saveVaultConfig: (env, vault) => ipcRenderer.invoke('vault:configure', env, vault),
   submitMfa: (env, code) => ipcRenderer.invoke('env:mfa', env, code),
   submitPassphrase: (env, pass) => ipcRenderer.invoke('env:passphrase', env, pass),
   renew: (env) => ipcRenderer.invoke('env:renew', env),

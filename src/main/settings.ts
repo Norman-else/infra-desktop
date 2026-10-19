@@ -40,6 +40,15 @@ const TEMPLATE: Settings = {
   },
 };
 
+/** Store an env's Vault address/header/role in settings.json, keeping everything else. */
+export function saveEnvVault(file: string, profile: string, vault: { addr: string; header?: string; role?: string }): void {
+  const settings = (existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}) as Settings;
+  settings.envs ??= {};
+  const env = (settings.envs[profile] ??= {});
+  env.vault = { ...env.vault, ...vault };
+  writeFileSync(file, JSON.stringify(settings, null, 2));
+}
+
 export function loadSettings(file: string): Settings {
   if (!existsSync(file)) {
     writeFileSync(file, JSON.stringify(TEMPLATE, null, 2));

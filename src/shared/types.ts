@@ -25,6 +25,8 @@ export interface ToolState {
 export interface ToolAvailability {
   available: boolean;
   reason?: string;
+  /** The tool can be shown but needs configuration first (Vault: no address for this env) */
+  setup?: 'vault';
 }
 
 export interface EnvInfo {
@@ -90,6 +92,8 @@ export interface RadarDesktopApi {
   switchTo(env: string): Promise<void>;
   /** Show Radar or Vault (ignored when unavailable) */
   setTool(tool: ToolKind): Promise<void>;
+  /** Save an env's Vault address/header/role from the setup form */
+  saveVaultConfig(env: string, vault: { addr: string; header?: string; role?: string }): Promise<{ ok: true } | { ok: false; error: string }>;
   submitMfa(env: string, code: string): Promise<void>;
   submitPassphrase(env: string, passphrase: string): Promise<void>;
   /** Start an MFA renewal for an already-running env */
