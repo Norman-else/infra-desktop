@@ -1,15 +1,15 @@
 import { app } from 'electron';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync, mkdtempSync } from 'node:fs';
+import { createWriteStream, mkdtempSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import YAML from 'yaml';
 import type { UpdateState } from '../shared/types';
 
-const REPO = 'Norman-else/radar-desktop';
+const REPO = 'Norman-else/infra-desktop';
 const CHECK_INTERVAL_MS = 30 * 60_000;
 /** A focus-triggered check runs only if the last one is at least this old. */
 const FOCUS_CHECK_AFTER_MS = 10 * 60_000;
@@ -28,6 +28,18 @@ export function isNewer(remote: string, local: string): boolean {
   const [a, b] = [parse(remote), parse(local)];
   for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
   return false;
+}
+
+/** The one .app bundle directly inside an extracted macOS update. */
+export function findAppBundle(dir: string): string {
+  const apps = readdirSync(dir).filter((n) => n.endsWith('.app') && statSync(join(dir, n)).isDirectory());
+  if (apps.length !== 1) throw new Error(`Expected one .app in the update, found ${apps.length}`);
+  return join(dir, apps[0]);
+}
+
+/** Where the updated bundle goes: the current bundle's folder, under the current product name. */
+export function installTarget(currentBundle: string, productName: string): string {
+  return join(dirname(currentBundle), `${productName}.app`);
 }
 
 /**
@@ -108,7 +120,7 @@ function macUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void):
   let staged: string | undefined; // path of the new .app, extracted and ready to swap in
 
   const appBundle = () => {
-    // .../Radar Desktop.app/Contents/MacOS/Radar Desktop -> .../Radar Desktop.app
+    // .../Infra Desktop.app/Contents/MacOS/Infra Desktop -> .../Infra Desktop.app
     const exe = app.getPath('exe');
     const i = exe.indexOf('.app/');
     return i > 0 ? exe.slice(0, i + 4) : undefined;
@@ -129,7 +141,7 @@ function macUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void):
       if (!file) throw new Error(`Version ${manifest.version} has no ${process.arch} zip`);
 
       set({ status: 'downloading', version: manifest.version, progress: 0 });
-      const dir = mkdtempSync(join(tmpdir(), 'radar-desktop-update-'));
+      const dir = mkdtempSync(join(tmpdir(), 'infra-desktop-update-'));
       const zip = join(dir, 'update.zip');
       const dl = await fetch(`https://github.com/${REPO}/releases/download/v${manifest.version}/${encodeURIComponent(file.url)}`);
       if (!dl.ok || !dl.body) throw new Error(`Update download failed: HTTP ${dl.status}`);
@@ -151,27 +163,28 @@ function macUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void):
       if (hash.digest('base64') !== file.sha512) throw new Error('Update failed verification (sha512 mismatch)');
 
       await run('/usr/bin/ditto', ['-x', '-k', zip, dir]);
-      const extracted = join(dir, 'Radar Desktop.app');
-      if (!existsSync(extracted)) throw new Error('Radar Desktop.app not found in the update');
-      staged = extracted;
+      staged = findAppBundle(dir);
       set({ status: 'ready', progress: 100 });
     },
     install() {
-      const target = appBundle();
-      if (!staged || !target) return;
+      const current = appBundle();
+      if (!staged || !current) return;
+      // The bundle may have been renamed between versions (Radar Desktop.app → Infra Desktop.app).
+      const target = installTarget(current, app.getName());
       // Wait for this process to exit, swap the bundle (restoring the old one if that fails), relaunch.
       const script = `
         while kill -0 "$PID" 2>/dev/null; do sleep 0.3; done
-        rm -rf "$T.old"
-        if mv "$T" "$T.old"; then
-          if mv "$S" "$T"; then rm -rf "$T.old"; else mv "$T.old" "$T"; fi
+        rm -rf "$C.old"
+        if mv "$C" "$C.old"; then
+          [ "$T" != "$C" ] && rm -rf "$T"
+          if mv "$S" "$T"; then rm -rf "$C.old"; else mv "$C.old" "$C"; T="$C"; fi
         fi
         xattr -cr "$T" 2>/dev/null
         open "$T"`;
       spawn('/bin/sh', ['-c', script], {
         detached: true,
         stdio: 'ignore',
-        env: { ...process.env, PID: String(process.pid), T: target, S: staged },
+        env: { ...process.env, PID: String(process.pid), C: current, T: target, S: staged },
       }).unref();
       app.quit();
     },
