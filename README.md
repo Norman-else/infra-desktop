@@ -55,6 +55,8 @@ xattr -cr "/Applications/Infra Desktop.app"
 
 - 顶栏颜色就是当前环境（dev 绿 / sat 橙 / prod 红），显示集群名、集群连接状态和 AWS 凭证剩余时间。
 - `Ctrl+Shift+E`（macOS `⇧⌘E`）或点「切换环境」打开环境列表，数字键 1-9 直接切换。（`Ctrl+K` 留给 radar 自己的搜索。）
+- 顶栏有 **Radar | Vault** 切换（`Ctrl+Shift+R` / `Ctrl+Shift+V`，macOS 为 `⇧⌘R` / `⇧⌘V`）。同一个环境只输一次 MFA，两个工具共用凭证。Vault 将在后续版本接入，目前是灰色的。
+- 某个工具启动失败时只影响它自己：凭证保留，点 Retry 重新启动该工具，不用再输 MFA。
 - 切换过的环境的 radar 会留在后台，切回来是秒开；不用的可以在列表里点「断开」。
 
 ## 工作方式

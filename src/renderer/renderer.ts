@@ -266,7 +266,7 @@ function appMenuHtml() {
     ? `<div class="item warn" data-act="settings">⚠ ${esc(state.problems[0])}${state.problems.length > 1 ? ` (+${state.problems.length - 1} more)` : ''}</div>`
     : '';
   const install = u.status === 'ready' ? `<div class="item accent" data-act="install-update">⬆ Restart to update to v${esc(u.version ?? '')}</div>` : '';
-  const running = state.envs.filter((e) => e.status === 'ready');
+  const running = state.envs.filter((e) => e.tools.radar.status === 'ready');
   const mcp = running.length
     ? `<div class="label-line">MCP endpoints · click to copy</div>${running
         .map((e) => {
@@ -343,7 +343,7 @@ async function renderOverlay() {
   const key = pe
     ? `prompt:${pe.name}:${pe.prompt}:${pe.promptError ?? ''}`
     : appMenuOpen
-      ? `app:${JSON.stringify(state.update)}:${state.problems.join('|')}:${state.envs.filter((e) => e.status === 'ready').map((e) => e.name + e.port).join()}`
+      ? `app:${JSON.stringify(state.update)}:${state.problems.join('|')}:${state.envs.filter((e) => e.tools.radar.status === 'ready').map((e) => e.name + e.port).join()}`
       : `menu:${menuFocus}:${JSON.stringify(state.envs.map(toolsSummary))}:${state.active}`;
   if (key === renderedOverlayKey) return;
   renderedOverlayKey = key;
