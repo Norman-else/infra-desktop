@@ -512,6 +512,9 @@ api.onCommand((cmd) => {
   if (cmd === 'switcher') toggleMenu();
 });
 setInterval(renderBar, 30_000);
+// Catch up at once when the window comes back, instead of waiting for the next tick.
+window.addEventListener('focus', () => renderBar());
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && renderBar());
 void api.getState().then((s) => {
   state = s;
   render();

@@ -178,6 +178,9 @@ async function main() {
   }
   // Windows shows notifications only for apps with an AppUserModelID (matches electron-builder's appId).
   if (process.platform === 'win32') app.setAppUserModelId('io.radar.desktop');
+  // Chromium stops painting a window Windows reports as covered; that misfires on some setups and froze the
+  // top bar (e.g. the credentials countdown) until the next click.
+  if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
   await app.whenReady();
   await importLoginShellEnv();
   // The app was called Radar Desktop before 0.2.0; bring its settings along once.
