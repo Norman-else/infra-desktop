@@ -90,6 +90,11 @@ pre { background: #111215; border: 1px solid var(--line); border-radius: 8px; pa
 .menu .num { color: var(--muted); font-size: 11px; width: 12px; }
 .menu .disc { background: none; color: var(--muted); font-size: 11px; padding: 2px 6px; border: 1px solid var(--line); }
 .menu .disc:hover { color: #fff; border-color: #888; }
+#bar .tool-switch { display: inline-flex; background: rgba(0, 0, 0, 0.22); border-radius: 7px; padding: 2px; gap: 2px; }
+#bar .tool-switch .seg { background: none; color: #fff; padding: 4px 12px; font-weight: 600; font-size: 12px; border-radius: 5px; opacity: 0.85; }
+#bar .tool-switch .seg:hover:not(:disabled) { background: rgba(255, 255, 255, 0.15); opacity: 1; }
+#bar .tool-switch .seg.on { background: rgba(255, 255, 255, 0.92); color: #111; opacity: 1; }
+#bar .tool-switch .seg:disabled { opacity: 0.4; cursor: not-allowed; }
 #bar .gear-btn { background: rgba(255, 255, 255, 0.18); width: 32px; height: 30px; font-size: 16px; line-height: 1; position: relative; padding: 0; }
 #bar .gear-btn:hover, #bar .gear-btn.open { background: rgba(255, 255, 255, 0.3); }
 #bar .gear-btn .dot { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35); }

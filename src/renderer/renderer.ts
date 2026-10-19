@@ -79,6 +79,18 @@ function updateHtml(): string {
   return '';
 }
 
+/** `Radar | Vault` segmented control; an unavailable tool is disabled with its reason as tooltip. */
+function toolSwitchHtml(): string {
+  const avail = activeEnv()?.tools ?? state.envs[0]?.tools;
+  const seg = (kind: ToolKind, key: string) => {
+    const a = avail?.[kind];
+    const off = a && !a.available;
+    const title = off ? a.reason ?? '' : `${TOOL_NAMES[kind]} (${isMac ? '⇧⌘' : 'Ctrl+Shift+'}${key})`;
+    return `<button class="seg ${activeTool() === kind ? 'on' : ''}" data-tool="${kind}" ${off ? 'disabled' : ''} title="${esc(title)}">${TOOL_NAMES[kind]}</button>`;
+  };
+  return `<span class="tool-switch">${seg('radar', 'R')}${seg('vault', 'V')}</span>`;
+}
+
 function gearHtml(): string {
   const dot = state.update.status === 'ready' || state.problems.length ? '<span class="dot"></span>' : '';
   return `<button class="gear-btn ${appMenuOpen ? 'open' : ''}" data-act="app-menu" title="Settings and updates">⚙${dot}</button>`;
@@ -88,7 +100,7 @@ function renderBar() {
   const e = activeEnv();
   bar.style.setProperty('--env', e ? e.color : '#50525a');
   if (!e) {
-    bar.innerHTML = `<span class="env-name">Not connected</span><span class="cluster">Choose an environment</span><span class="spacer"></span>${updateHtml()}
+    bar.innerHTML = `<span class="env-name">Not connected</span><span class="cluster">Choose an environment</span><span class="spacer"></span>${updateHtml()}${toolSwitchHtml()}
       <button class="switch-btn" data-act="menu">Switch environment ▾<span class="kbd">${shortcut}</span></button>${gearHtml()}`;
     return;
   }
@@ -106,12 +118,14 @@ function renderBar() {
     meta = `<span class="meta">${esc(statusText(e).text)}</span>`;
   }
   bar.innerHTML = `<span class="env-name"><span class="pulse"></span>${esc(e.label)}</span>
-    <span class="cluster">${esc(e.clusterName)}</span><span class="spacer"></span>${meta}${updateHtml()}
+    <span class="cluster">${esc(e.clusterName)}</span><span class="spacer"></span>${meta}${updateHtml()}${toolSwitchHtml()}
     <button class="switch-btn" data-act="menu">Switch environment ${menuOpen ? '▴' : '▾'}<span class="kbd">${shortcut}</span></button>${gearHtml()}`;
 }
 
 bar.addEventListener('click', (ev) => {
   const act = (ev.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act;
+  const tool = (ev.target as HTMLElement).closest<HTMLButtonElement>('[data-tool]');
+  if (tool && !tool.disabled) return void api.setTool(tool.dataset.tool as ToolKind);
   if (act === 'menu') toggleMenu();
   if (act === 'app-menu') toggleAppMenu();
   if (act === 'renew' && state.active) void api.renew(state.active);
@@ -202,10 +216,39 @@ function closeMenus() {
   render();
 }
 
+/** One env's tools for the switcher row, e.g. "Radar ✓ · Vault —"; title has the details. */
+function toolsSummary(e: EnvState): { text: string; cls: string; title?: string } {
+  if (e.status !== 'ready' || e.prompt || e.renewNeedsMfa) return statusText(e);
+  const parts: string[] = [];
+  const details: string[] = [];
+  let bad = false;
+  for (const kind of ['radar', 'vault'] as ToolKind[]) {
+    const t = e.tools[kind];
+    const name = TOOL_NAMES[kind];
+    if (!t.available) {
+      parts.push(`${name} —`);
+      continue;
+    }
+    if (t.status === 'error') {
+      bad = true;
+      parts.push(`${name} ⚠`);
+      details.push(`${name}: ${t.message ?? 'failed'}`);
+    } else if (t.status === 'starting') parts.push(`${name} …`);
+    else if (t.status === 'ready' && t.health?.state === 'failed') {
+      bad = true;
+      parts.push(`${name} ⚠ ${t.health.text}`);
+      details.push(`${name}: ${t.health.detail ?? t.health.text}`);
+    } else if (t.status === 'ready') parts.push(`${name} ✓`);
+  }
+  const left = remaining(e.credsExpiresAt);
+  if (left) details.push(`AWS credentials: ${left} left`);
+  return { text: parts.join(' · '), cls: bad ? 'bad' : 'ok', title: details.join('\n') };
+}
+
 function menuHtml() {
   return `<div class="menu">${state.envs
     .map((e, i) => {
-      const st = statusText(e);
+      const st = toolsSummary(e);
       const cur = e.name === state.active;
       return `<div class="row ${cur ? 'current' : ''} ${i === menuFocus ? 'focus' : ''}" style="--c:${e.color}" data-env="${esc(e.name)}">
         <span class="num">${i < 9 ? i + 1 : ''}</span><span class="sw"></span>
@@ -301,7 +344,7 @@ async function renderOverlay() {
     ? `prompt:${pe.name}:${pe.prompt}:${pe.promptError ?? ''}`
     : appMenuOpen
       ? `app:${JSON.stringify(state.update)}:${state.problems.join('|')}:${state.envs.filter((e) => e.status === 'ready').map((e) => e.name + e.port).join()}`
-      : `menu:${menuFocus}:${JSON.stringify(state.envs.map(statusText))}:${state.active}`;
+      : `menu:${menuFocus}:${JSON.stringify(state.envs.map(toolsSummary))}:${state.active}`;
   if (key === renderedOverlayKey) return;
   renderedOverlayKey = key;
   overlayContent.innerHTML = pe ? promptHtml(pe) : appMenuOpen ? appMenuHtml() : menuHtml();
