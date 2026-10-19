@@ -79,6 +79,22 @@ describe('detectVaultMcp: uvx', () => {
     expect(later.ok && later.ref).toBe('v9.9.9');
   });
 
+  it('force asks GitHub even within 4 hours', async () => {
+    const file = stateFile();
+    const now = 1_000_000_000_000;
+    writeFileSync(file, JSON.stringify({ latest: { tag: 'v0.2.0', checkedAt: now - 60_000 }, lastGood: 'v0.2.0' }));
+    const r = await detectVaultMcp({}, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest: async () => 'v0.3.0', stateFile: file, now: () => now, force: true });
+    expect(r.ok && r.ref).toBe('v0.3.0');
+    expect(r.ok && r.latestUnknown).toBeUndefined();
+  });
+
+  it('reports when GitHub could not be asked', async () => {
+    const file = stateFile();
+    writeFileSync(file, JSON.stringify({ lastGood: 'v0.2.0' }));
+    const r = await detectVaultMcp({}, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest: () => Promise.reject(new Error('offline')), stateFile: file, force: true });
+    expect(r).toMatchObject({ ok: true, ref: 'v0.2.0', latestUnknown: true });
+  });
+
   it('vaultMcpRef wins and skips the lookup', async () => {
     const fetchLatest = vi.fn(async () => 'v0.2.0');
     const r = await detectVaultMcp({ vaultMcpRef: 'v0.1.5' }, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest, stateFile: stateFile() });

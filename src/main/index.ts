@@ -164,6 +164,7 @@ function registerIpc() {
   ipcMain.handle('settings:open', () => shell.openPath(manager.settingsPath));
   ipcMain.handle('settings:reload', () => manager.reload());
   ipcMain.handle('update:check', () => updater?.check());
+  ipcMain.handle('vault:check-update', () => manager.checkVaultUpdate());
   ipcMain.handle('update:install', () => updater?.install());
 }
 

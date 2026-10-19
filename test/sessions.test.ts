@@ -42,6 +42,8 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
   let made: Record<string, FakeTool>;
   let discovered: { addr?: string; header?: string; role?: string };
   let lookups: number;
+  let release: string;
+  let forced: boolean[];
   const oldAwsConfig = process.env.AWS_CONFIG_FILE;
 
   beforeEach(async () => {
@@ -63,11 +65,16 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
     made = {};
     discovered = {};
     lookups = 0;
+    release = 'v0.2.0';
+    forced = [];
     manager = new EnvManager(dir, {
       radar: (ctx) => (made[`radar:${ctx.env.name}`] = new FakeTool('radar', ctx)),
       vault: (ctx) => (made[`vault:${ctx.env.name}`] = new FakeTool('vault', ctx)),
     }, {
-      detectVault: async () => ({ ok: true, command: ['python', '-m', 'vault_mcp.web_ui'], cwd: dir, env: {}, startTimeoutMs: 60_000 }),
+      detectVault: async (_s, force) => {
+        forced.push(force);
+        return { ok: true, command: ['uvx'], env: {}, startTimeoutMs: 60_000, ref: release };
+      },
       claudeJsonPath: join(dir, 'claude.json'),
       discoverVault: async () => {
         lookups++;
@@ -171,6 +178,39 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
     await connectWithMfa();
     await manager.setTool('vault');
     expect(lookups).toBe(0);
+  });
+
+  it('shows the vault-mcp version in use', () => {
+    expect(manager.getState().vault).toEqual({ status: 'idle', ref: 'v0.2.0' });
+  });
+
+  it('manual Vault update check without a new release keeps Vault running', async () => {
+    await connectWithMfa();
+    await manager.setTool('vault');
+    await manager.checkVaultUpdate();
+    expect(forced.at(-1)).toBe(true);
+    expect(manager.getState().vault).toEqual({ status: 'latest', ref: 'v0.2.0' });
+    expect(made['vault:dev'].stops).toBe(0);
+  });
+
+  it('manual Vault update check moves running Vault to the new release', async () => {
+    await connectWithMfa();
+    await manager.setTool('vault');
+    const old = made['vault:dev'];
+    release = 'v0.3.0';
+    await manager.checkVaultUpdate();
+    expect(manager.getState().vault).toEqual({ status: 'updated', ref: 'v0.3.0' });
+    expect(old.stops).toBe(1);
+    expect(made['vault:dev']).not.toBe(old);
+    expect(made['vault:dev'].starts).toBe(1);
+    expect(made['radar:dev'].stops).toBe(0);
+  });
+
+  it('a new release does not start Vault where it was never opened', async () => {
+    await connectWithMfa();
+    release = 'v0.3.0';
+    await manager.checkVaultUpdate();
+    expect(made['vault:dev']).toBeUndefined();
   });
 
   it('switching env keeps the active tool', async () => {

@@ -73,6 +73,15 @@ export interface UpdateState {
   error?: string;
 }
 
+/** The vault-mcp release Vault runs on, and the last manual update check. */
+export interface VaultVersion {
+  /** checking = looking up the release to run; latest / updated / error = result of a manual check */
+  status: 'checking' | 'idle' | 'latest' | 'updated' | 'error';
+  /** vault-mcp release tag (or commit) in use */
+  ref?: string;
+  message?: string;
+}
+
 export interface AppState {
   envs: EnvState[];
   active: string | null;
@@ -82,6 +91,7 @@ export interface AppState {
   update: UpdateState;
   /** Tool shown in the window (global: switching environment keeps it) */
   activeTool: ToolKind;
+  vault: VaultVersion;
 }
 
 export interface RadarDesktopApi {
@@ -106,6 +116,8 @@ export interface RadarDesktopApi {
   closeOverlay(): Promise<void>;
   openSettings(): Promise<void>;
   checkUpdate(): Promise<void>;
+  /** Look for a newer vault-mcp release now and move running Vault to it */
+  checkVaultUpdate(): Promise<void>;
   installUpdate(): Promise<void>;
   reloadConfig(): Promise<void>;
 }

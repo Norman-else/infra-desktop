@@ -18,6 +18,7 @@ const api: RadarDesktopApi = {
   closeOverlay: () => ipcRenderer.invoke('overlay:close'),
   openSettings: () => ipcRenderer.invoke('settings:open'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
+  checkVaultUpdate: () => ipcRenderer.invoke('vault:check-update'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
   reloadConfig: () => ipcRenderer.invoke('settings:reload'),
 };

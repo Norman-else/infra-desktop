@@ -17,6 +17,8 @@ export type VaultMcp =
       firstRunHint?: string;
       /** The vault-mcp release tag or commit being run */
       ref?: string;
+      /** GitHub could not be asked for the latest release, so a cached one is used */
+      latestUnknown?: boolean;
     }
   | { ok: false; reason: string };
 export type VaultMcpReady = Extract<VaultMcp, { ok: true }>;
@@ -39,6 +41,8 @@ export interface DetectDeps {
   /** Where the latest-release lookup and last working ref are remembered */
   stateFile?: string;
   now?: () => number;
+  /** Ask GitHub even if the last lookup is recent */
+  force?: boolean;
 }
 interface State {
   latest?: { tag?: string; checkedAt: number };
@@ -113,12 +117,13 @@ async function detectUvx(settings: Settings, deps: Required<Pick<DetectDeps, 'ru
 
   const state = readState(deps.stateFile);
   let latest = state.latest?.tag;
-  if (!state.latest || deps.now() - state.latest.checkedAt >= LATEST_CHECK_INTERVAL_MS) {
+  let latestUnknown = false;
+  if (deps.force || !state.latest || deps.now() - state.latest.checkedAt >= LATEST_CHECK_INTERVAL_MS) {
     try {
       latest = await deps.fetchLatest();
       state.latest = { tag: latest, checkedAt: deps.now() };
     } catch {
-      /* offline / rate limited: use what is cached */
+      latestUnknown = true; // offline / rate limited: use what is cached
     }
   }
   const candidates = [...new Set([latest, state.lastGood, VAULT_MCP_SHA].filter((r): r is string => !!r))];
@@ -126,7 +131,7 @@ async function detectUvx(settings: Settings, deps: Required<Pick<DetectDeps, 'ru
     const candidate = launcher(ref);
     if (await passes(candidate, deps.run)) {
       writeState(deps.stateFile, { ...state, lastGood: ref });
-      return candidate;
+      return latestUnknown ? { ...candidate, latestUnknown } : candidate;
     }
   }
   writeState(deps.stateFile, state);

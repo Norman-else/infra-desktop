@@ -1,4 +1,4 @@
-import type { AppState, EnvState, RadarDesktopApi, ToolKind } from '../shared/types';
+import type { AppState, EnvState, RadarDesktopApi, ToolKind, VaultVersion } from '../shared/types';
 
 declare global {
   interface Window { radarDesktop: RadarDesktopApi }
@@ -12,7 +12,7 @@ const overlay = $('overlay');
 const backdrop = $<HTMLImageElement>('backdrop');
 const overlayContent = $('overlay-content');
 
-let state: AppState = { envs: [], active: null, problems: [], settingsPath: '', update: { status: 'disabled', current: '' }, activeTool: 'radar' };
+let state: AppState = { envs: [], active: null, problems: [], settingsPath: '', update: { status: 'disabled', current: '' }, activeTool: 'radar', vault: { status: 'checking' } };
 let menuOpen = false;
 /** The ⚙ menu: settings, config reload, version and updates */
 let appMenuOpen = false;
@@ -296,6 +296,7 @@ function menuHtml() {
 function appMenuHtml() {
   const u = state.update;
   const canCheck = !['disabled', 'checking', 'downloading'].includes(u.status);
+  const vaultChecking = state.vault.status === 'checking';
   const problems = state.problems.length
     ? `<div class="item warn" data-act="settings">⚠ ${esc(state.problems[0])}${state.problems.length > 1 ? ` (+${state.problems.length - 1} more)` : ''}</div>`
     : '';
@@ -316,7 +317,26 @@ function appMenuHtml() {
     <div class="sep"></div>
     ${install}
     <div class="item ${canCheck ? '' : 'disabled'}" ${canCheck ? 'data-act="check-update"' : ''}>Check for updates</div>
-    <div class="ver-line" title="${esc(u.error ?? '')}">${versionHtml()}</div></div>`;
+    <div class="ver-line" title="${esc(u.error ?? '')}">${versionHtml()}</div>
+    <div class="sep"></div>
+    <div class="item ${vaultChecking ? 'disabled' : ''}" ${vaultChecking ? '' : 'data-act="check-vault-update"'}>Check for Vault updates</div>
+    <div class="ver-line" title="${esc(state.vault.message ?? '')}">${vaultVersionHtml()}</div></div>`;
+}
+
+/** Release tags as is, commits shortened. */
+const shortRef = (ref: string) => (/^[0-9a-f]{40}$/.test(ref) ? ref.slice(0, 7) : ref);
+
+function vaultVersionHtml(): string {
+  const v = state.vault;
+  const label: Record<VaultVersion['status'], string> = {
+    checking: 'checking…',
+    idle: '',
+    latest: 'up to date',
+    updated: 'updated',
+    error: v.ref ? 'update check failed' : (v.message ?? 'unavailable'),
+  };
+  const st = label[v.status];
+  return `Vault (vault-mcp) ${v.ref ? esc(shortRef(v.ref)) : ''}${st ? ` · ${esc(st)}` : ''}`;
 }
 
 function versionHtml(): string {
@@ -405,6 +425,7 @@ overlayContent.addEventListener('click', (ev) => {
   if (act === 'settings') return void (closeMenus(), api.openSettings());
   if (act === 'reload') return void (closeMenus(), api.reloadConfig());
   if (act === 'check-update') return void api.checkUpdate();
+  if (act === 'check-vault-update') return void api.checkVaultUpdate();
   if (act === 'install-update') return void api.installUpdate();
   const env = t.closest<HTMLElement>('[data-env]')?.dataset.env;
   if (env) pick(env);
