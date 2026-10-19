@@ -63,7 +63,7 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
       radar: (ctx) => (made[`radar:${ctx.env.name}`] = new FakeTool('radar', ctx)),
       vault: (ctx) => (made[`vault:${ctx.env.name}`] = new FakeTool('vault', ctx)),
     }, {
-      detectVault: async () => ({ ok: true, source: 'checkout', command: ['python', '-m', 'vault_mcp.web_ui'], cwd: dir, env: {}, startTimeoutMs: 60_000 }),
+      detectVault: async () => ({ ok: true, command: ['python', '-m', 'vault_mcp.web_ui'], cwd: dir, env: {}, startTimeoutMs: 60_000 }),
       claudeJsonPath: join(dir, 'claude.json'),
     });
     writeFileSync(join(dir, 'claude.json'), JSON.stringify({ mcpServers: { vault: { env: { VAULT_ADDR_DEV: 'https://vault.dev.example' } } } }));
@@ -147,12 +147,12 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
 describe('EnvManager default tools', () => {
   it('ignores switching to an unavailable tool', async () => {
     const m = new EnvManager(mkdtempSync(join(tmpdir(), 'sessions-default-')), undefined, {
-      detectVault: async () => ({ ok: false, reason: 'vault-mcp not found. Set vaultMcpPath in settings.' }),
+      detectVault: async () => ({ ok: false, reason: 'Vault needs uv. Install it from https://docs.astral.sh/uv/ and reload the config.' }),
     });
     await m.init();
     await m.setTool('vault');
     expect(m.activeTool).toBe('radar');
-    expect(m.availability('vault')).toEqual({ available: false, reason: 'vault-mcp not found. Set vaultMcpPath in settings.' });
+    expect(m.availability('vault')).toEqual({ available: false, reason: 'Vault needs uv. Install it from https://docs.astral.sh/uv/ and reload the config.' });
     m.shutdown();
   });
 });
@@ -181,7 +181,7 @@ describe('Vault availability', () => {
     return m;
   };
 
-  const uvx = async () => ({ ok: true as const, source: 'uvx' as const, command: ['uvx'], env: {}, startTimeoutMs: 300_000 });
+  const uvx = async () => ({ ok: true as const, command: ['uvx'], env: {}, startTimeoutMs: 300_000 });
 
   it('missing address means setup, not unavailable', async () => {
     const m = await setup(uvx);
@@ -208,8 +208,8 @@ describe('Vault availability', () => {
   });
 
   it('vault unavailable when vault-mcp is missing', async () => {
-    const m = await setup(async () => ({ ok: false, reason: 'vault-mcp not found. Set vaultMcpPath in settings.' }));
-    expect(m.availability('vault', 'dev')).toEqual({ available: false, reason: 'vault-mcp not found. Set vaultMcpPath in settings.' });
+    const m = await setup(async () => ({ ok: false, reason: 'Vault needs uv. Install it from https://docs.astral.sh/uv/ and reload the config.' }));
+    expect(m.availability('vault', 'dev')).toEqual({ available: false, reason: 'Vault needs uv. Install it from https://docs.astral.sh/uv/ and reload the config.' });
     m.shutdown();
   });
 });

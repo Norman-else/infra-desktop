@@ -12,7 +12,6 @@ import type { VaultMcpReady } from '../src/main/vault-mcp';
 const fixture = join(__dirname, 'fixtures', 'fake-vault-ui.mjs');
 const fixtureLauncher = (extra: Partial<VaultMcpReady> = {}): VaultMcpReady => ({
   ok: true,
-  source: 'uvx',
   command: [process.execPath, fixture],
   env: {},
   startTimeoutMs: 60_000,
@@ -106,14 +105,14 @@ describe('vaultProcessEnv', () => {
   it('vault host is excluded from the proxy', () => {
     const env = vaultProcessEnv(
       { HTTPS_PROXY: 'http://127.0.0.1:7897', NO_PROXY: 'localhost', PYTHONPATH: 'J:/elsewhere' },
-      { ok: true, source: 'checkout', command: ['py', '-m', 'vault_mcp.web_ui'], cwd: 'K:/MCP/vault-mcp', env: { PYTHONPATH: join('K:/MCP/vault-mcp', 'src') }, startTimeoutMs: 60_000 },
+      { ok: true, command: ['uvx', '--from', 'x', 'vault-mcp-web-ui'], env: {}, startTimeoutMs: 300_000 },
       { env: 'dev', addr: 'https://vault.internal.dev.example:8200', header: 'vault.dev.example', role: 'vault_admin', region: 'us-west-2', port: 9291 },
       'acme-dev',
     );
     for (const key of ['NO_PROXY', 'no_proxy']) {
       expect(env[key]?.split(',')).toEqual(expect.arrayContaining(['localhost', 'vault.internal.dev.example']));
     }
-    expect(env.PYTHONPATH).toBe(join('K:/MCP/vault-mcp', 'src'));
+    expect(env.PYTHONPATH).toBeUndefined(); // stray Python settings never leak into vault-mcp
     expect(env.VAULT_MCP_AWS_CREDENTIALS).toBe('ambient');
     expect(env.VAULT_ADDR_DEV).toBe('https://vault.internal.dev.example:8200');
     expect(env.VAULT_HEADER_DEV).toBe('vault.dev.example');

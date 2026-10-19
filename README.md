@@ -63,7 +63,11 @@ xattr -cr "/Applications/Infra Desktop.app"
 
 顶栏切到 **Vault** 就会在当前环境打开 [vault-mcp](https://github.com/Norman-else/vault-mcp) 的 Web UI，和 Radar 共用同一份 AWS 凭证：不用再输 MFA，不需要 Claude，也不会改你全局的 kubectl context。凭证续期后 Vault 会自动重新登录。
 
-**需要什么**：装好 [uv](https://docs.astral.sh/uv/) 就行，不需要 clone 代码。桌面会用 `uvx` 运行 vault-mcp **最新的 GitHub Release**（每 4 小时检查一次；新版本先验证能用再切换，不能用就继续用上一个能用的版本；正在使用的 Vault 不会被中途重启）。第一次运行某个版本时会下载，需要一两分钟。
+**需要什么**：装好 [uv](https://docs.astral.sh/uv/) 就行。桌面总是用 `uvx` 运行 vault-mcp 的 **GitHub Release**，从不使用本地 clone 的代码：
+
+- 默认用最新的 Release（每 4 小时检查一次）。新版本先验证能用（`vault-mcp-web-ui --version`）再切换，不能用就继续用上一个能用的版本；正在使用的 Vault 不会被中途重启，新版本在下次启动该环境的 Vault 时生效。
+- 第一次运行某个版本时会下载，需要一两分钟。
+- 所以改了 vault-mcp 之后，要在 vault-mcp 仓库发布 Release（Actions → Release），桌面才会用上。
 
 **第一次用某个环境的 Vault**：页面上会出现一个小表单，填 Vault 的 Address、Header（`X-Vault-AWS-IAM-Server-ID`，没有可以空着）和 Role，保存后就打开 Vault。这些值存在桌面自己的设置文件里（`envs.<profile>.vault`）。如果本机的 `~/.claude.json` 里配置过 `vault` MCP server，会直接沿用它的 `VAULT_ADDR_<ENV>` / `VAULT_HEADER_<ENV>` / `VAULT_ROLE_<ENV>` / `AWS_REGION_<ENV>`（只读这几项），就不会出现表单。
 
@@ -71,9 +75,7 @@ xattr -cr "/Applications/Infra Desktop.app"
 
 | 键 | 说明 |
 |---|---|
-| `vaultMcpSource` | `auto`（默认：有本地 checkout 就用 checkout，否则 uvx）、`uvx`、`checkout` |
-| `vaultMcpPath` | 本地 vault-mcp checkout（Windows 上 `K:/MCP/vault-mcp` 存在时会自动使用），可选 `vaultPython` |
-| `vaultMcpRef` | 固定 uvx 模式下的 vault-mcp 版本（tag 或 commit），设置后不再自动跟随最新 Release |
+| `vaultMcpRef` | 固定 vault-mcp 版本（Release tag 或 commit），设置后不再自动跟随最新 Release |
 | `envs.<profile>.vault` | `{ "addr", "header", "role", "env", "port" }`，覆盖自动读取的值 |
 
 Vault 端口默认是 radar 端口 + 10：dev 9291、sat 9292、prod 9293。

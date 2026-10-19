@@ -20,43 +20,29 @@ function checkout() {
   return root;
 }
 
-describe('detectVaultMcp: checkout', () => {
-  it('auto prefers the checkout', async () => {
+describe('detectVaultMcp: no local checkout', () => {
+  it('never uses a local checkout, even when one is configured from an older version', async () => {
     const root = checkout();
+    const legacy = { vaultMcpPath: root, vaultMcpSource: 'checkout' } as unknown as Parameters<typeof detectVaultMcp>[0];
     const run = vi.fn().mockResolvedValue(OK);
-    const r = await detectVaultMcp({ vaultMcpPath: root }, { run, which: uvAt('C:/uv/uvx.exe'), fetchLatest: noReleases });
-    expect(r).toMatchObject({ ok: true, source: 'checkout', command: [venvPython(root), '-m', 'vault_mcp.web_ui'], cwd: root, env: { PYTHONPATH: join(root, 'src') } });
-    const [cmd, args, opts] = run.mock.calls[0];
-    expect([cmd, ...args]).toEqual([venvPython(root), '-m', 'vault_mcp.web_ui', '--version']);
-    expect(opts.env.PYTHONPATH).toBe(join(root, 'src'));
-  });
-
-  it('too old when --version fails or prints something else', async () => {
-    const root = checkout();
-    const failing = await detectVaultMcp({ vaultMcpPath: root }, { run: vi.fn().mockRejectedValue(new Error('No module named vault_mcp.web_ui')), which: noUv });
-    expect(failing).toEqual({ ok: false, reason: `vault-mcp at ${root} has no standalone mode. Update it (git pull).` });
-    const other = await detectVaultMcp({ vaultMcpPath: root }, { run: vi.fn().mockResolvedValue('usage: ...'), which: noUv });
-    expect(other.ok).toBe(false);
-  });
-
-  it('configured path that does not exist is reported', async () => {
-    const r = await detectVaultMcp({ vaultMcpPath: join(tmpdir(), 'no-such-vault-mcp') }, { run: vi.fn(), which: uvAt('uvx') });
-    expect(r).toEqual({ ok: false, reason: `vault-mcp not found at ${join(tmpdir(), 'no-such-vault-mcp')}. Fix vaultMcpPath in settings.` });
+    const r = await detectVaultMcp(legacy, { run, which: uvAt('uvx'), fetchLatest: async () => 'v0.2.0', stateFile: stateFile() });
+    expect(r.ok && r.command).toEqual(['uvx', '--from', archive('v0.2.0'), 'vault-mcp-web-ui']);
+    expect(run.mock.calls.every(([cmd]) => cmd === 'uvx')).toBe(true);
   });
 });
 
 describe('detectVaultMcp: uvx', () => {
   it('falls back to the pinned commit without releases or cache', async () => {
     const run = vi.fn().mockResolvedValue(OK);
-    const r = await detectVaultMcp({ vaultMcpSource: 'uvx' }, { run, which: uvAt('C:/uv/uvx.exe'), fetchLatest: noReleases, stateFile: stateFile() });
-    expect(r).toMatchObject({ ok: true, source: 'uvx', ref: VAULT_MCP_SHA, command: ['C:/uv/uvx.exe', '--from', archive(VAULT_MCP_SHA), 'vault-mcp-web-ui'] });
+    const r = await detectVaultMcp({}, { run, which: uvAt('C:/uv/uvx.exe'), fetchLatest: noReleases, stateFile: stateFile() });
+    expect(r).toMatchObject({ ok: true, ref: VAULT_MCP_SHA, command: ['C:/uv/uvx.exe', '--from', archive(VAULT_MCP_SHA), 'vault-mcp-web-ui'] });
     if (r.ok) expect(r.env.PYTHONPATH).toBeUndefined();
     expect(run.mock.calls[0][2].env.PYTHONPATH).toBeUndefined();
   });
 
   it('uses the latest vault-mcp release', async () => {
     const file = stateFile();
-    const r = await detectVaultMcp({ vaultMcpSource: 'uvx' }, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest: async () => 'v0.2.0', stateFile: file });
+    const r = await detectVaultMcp({}, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest: async () => 'v0.2.0', stateFile: file });
     expect(r.ok && r.ref).toBe('v0.2.0');
     expect(r.ok && r.command[2]).toBe(archive('v0.2.0'));
     expect(JSON.parse(readFileSync(file, 'utf8')).lastGood).toBe('v0.2.0');
@@ -66,7 +52,7 @@ describe('detectVaultMcp: uvx', () => {
     const file = stateFile();
     writeFileSync(file, JSON.stringify({ lastGood: 'v0.2.0' }));
     const run = vi.fn(async (_cmd: string, args: string[]) => (args.includes(archive('v0.3.0')) ? 'usage: nope' : OK));
-    const r = await detectVaultMcp({ vaultMcpSource: 'uvx' }, { run, which: uvAt('uvx'), fetchLatest: async () => 'v0.3.0', stateFile: file });
+    const r = await detectVaultMcp({}, { run, which: uvAt('uvx'), fetchLatest: async () => 'v0.3.0', stateFile: file });
     expect(r.ok && r.ref).toBe('v0.2.0');
   });
 
@@ -74,7 +60,7 @@ describe('detectVaultMcp: uvx', () => {
     const file = stateFile();
     writeFileSync(file, JSON.stringify({ lastGood: 'v0.2.0' }));
     const r = await detectVaultMcp(
-      { vaultMcpSource: 'uvx' },
+      {},
       { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest: () => Promise.reject(new Error('offline')), stateFile: file },
     );
     expect(r.ok && r.ref).toBe('v0.2.0');
@@ -85,36 +71,31 @@ describe('detectVaultMcp: uvx', () => {
     const now = 1_000_000_000_000;
     writeFileSync(file, JSON.stringify({ latest: { tag: 'v0.2.0', checkedAt: now - 60 * 60_000 }, lastGood: 'v0.2.0' }));
     const fetchLatest = vi.fn(async () => 'v9.9.9');
-    const r = await detectVaultMcp({ vaultMcpSource: 'uvx' }, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest, stateFile: file, now: () => now });
+    const r = await detectVaultMcp({}, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest, stateFile: file, now: () => now });
     expect(fetchLatest).not.toHaveBeenCalled();
     expect(r.ok && r.ref).toBe('v0.2.0');
-    const later = await detectVaultMcp({ vaultMcpSource: 'uvx' }, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest, stateFile: file, now: () => now + 5 * 60 * 60_000 });
+    const later = await detectVaultMcp({}, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest, stateFile: file, now: () => now + 5 * 60 * 60_000 });
     expect(fetchLatest).toHaveBeenCalledOnce();
     expect(later.ok && later.ref).toBe('v9.9.9');
   });
 
   it('vaultMcpRef wins and skips the lookup', async () => {
     const fetchLatest = vi.fn(async () => 'v0.2.0');
-    const r = await detectVaultMcp({ vaultMcpSource: 'uvx', vaultMcpRef: 'v0.1.5' }, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest, stateFile: stateFile() });
+    const r = await detectVaultMcp({ vaultMcpRef: 'v0.1.5' }, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest, stateFile: stateFile() });
     expect(r.ok && r.command[2]).toBe(archive('v0.1.5'));
     expect(fetchLatest).not.toHaveBeenCalled();
   });
 
-  it("source 'uvx' forces uvx even with a checkout", async () => {
-    const r = await detectVaultMcp({ vaultMcpSource: 'uvx', vaultMcpPath: checkout() }, { run: vi.fn().mockResolvedValue(OK), which: uvAt('uvx'), fetchLatest: noReleases, stateFile: stateFile() });
-    expect(r.ok && r.source).toBe('uvx');
-  });
-
   it('uvx mode uses long timeouts', async () => {
     const run = vi.fn().mockResolvedValue(OK);
-    const r = await detectVaultMcp({ vaultMcpSource: 'uvx' }, { run, which: uvAt('uvx'), fetchLatest: noReleases, stateFile: stateFile() });
+    const r = await detectVaultMcp({}, { run, which: uvAt('uvx'), fetchLatest: noReleases, stateFile: stateFile() });
     expect(r.ok && r.startTimeoutMs).toBe(300_000);
     expect(r.ok && r.firstRunHint).toBe('Preparing Vault (first run downloads vault-mcp)…');
     expect(run.mock.calls[0][2].timeoutMs).toBe(300_000);
   });
 
-  it('unavailable without uv or checkout', async () => {
-    const r = await detectVaultMcp({ vaultMcpSource: 'uvx' }, { run: vi.fn(), which: noUv, fetchLatest: noReleases });
-    expect(r).toEqual({ ok: false, reason: 'Vault needs uv (https://docs.astral.sh/uv/) or a vault-mcp checkout (vaultMcpPath).' });
+  it('unavailable without uv', async () => {
+    const r = await detectVaultMcp({}, { run: vi.fn(), which: noUv, fetchLatest: noReleases });
+    expect(r).toEqual({ ok: false, reason: 'Vault needs uv. Install it from https://docs.astral.sh/uv/ and reload the config.' });
   });
 });

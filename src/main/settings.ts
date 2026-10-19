@@ -14,13 +14,7 @@ export interface Settings {
   duration?: string;
   /** Extra arguments appended to every radar invocation */
   radarArgs?: string[];
-  /** vault-mcp checkout used for the Vault tab; defaults to K:/MCP/vault-mcp on Windows when present */
-  vaultMcpPath?: string;
-  /** Python for vault-mcp; defaults to the checkout's .venv */
-  vaultPython?: string;
-  /** How to run vault-mcp: a checkout, uvx with a pinned version, or auto (checkout when present, else uvx) */
-  vaultMcpSource?: 'auto' | 'checkout' | 'uvx';
-  /** vault-mcp git ref (sha or tag) run with uvx; defaults to the version this desktop release pins */
+  /** Pin the vault-mcp version (release tag or commit); by default the latest vault-mcp release is used */
   vaultMcpRef?: string;
   /** Per-profile overrides, keyed by AWS profile name */
   envs?: Record<string, EnvOverride>;
@@ -33,8 +27,7 @@ const TEMPLATE: Settings = {
   kubeconfig: '',
   duration: '',
   radarArgs: [],
-  vaultMcpPath: '',
-  vaultPython: '',
+  vaultMcpRef: '',
   envs: {
     'example-profile': { context: 'my-kube-context', label: 'EXAMPLE', color: '#3d6fd6', hidden: false, port: 9290 },
   },
@@ -56,6 +49,6 @@ export function loadSettings(file: string): Settings {
   }
   const raw = JSON.parse(readFileSync(file, 'utf8')) as Settings;
   // Treat empty strings from the template as "not set".
-  for (const k of ['awsVaultPath', 'awsVaultBackend', 'radarPath', 'kubeconfig', 'duration', 'vaultMcpPath', 'vaultPython', 'vaultMcpRef'] as const) if (!raw[k]) delete raw[k];
+  for (const k of ['awsVaultPath', 'awsVaultBackend', 'radarPath', 'kubeconfig', 'duration', 'vaultMcpRef'] as const) if (!raw[k]) delete raw[k];
   return raw;
 }
