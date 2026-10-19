@@ -80,6 +80,8 @@ export interface VaultVersion {
   /** vault-mcp release tag (or commit) in use */
   ref?: string;
   message?: string;
+  /** When the last manual check finished */
+  checkedAt?: number;
 }
 
 export interface AppState {

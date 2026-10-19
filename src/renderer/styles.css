@@ -120,6 +120,8 @@ pre { background: #111215; border: 1px solid var(--line); border-radius: 8px; pa
 .app-menu .item.mcp code { color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
 .app-menu .sep { height: 1px; background: var(--line); margin: 6px 0; }
 .app-menu .ver-line { padding: 6px 16px 4px; color: var(--muted); font-size: 12px; }
+.app-menu .ver-line.updated { color: #4fc27a; }
+.app-menu .ver-line.error { color: #e5a03a; }
 #bar .update-btn { background: #fff; color: #111; padding: 5px 10px; font-size: 12px; font-weight: 700; }
 #bar .update-btn:hover { background: #e8e8e8; }
 .menu .foot { display: flex; gap: 14px; padding: 10px 14px; font-size: 12px; }

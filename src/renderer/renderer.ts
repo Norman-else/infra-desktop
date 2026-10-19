@@ -19,6 +19,9 @@ let appMenuOpen = false;
 let menuFocus = 0;
 let overlayShown = false;
 let renderedOverlayKey = '';
+/** A manual Vault update check shows "Checking…" at least this long, so the click visibly does something. */
+const MIN_CHECKING_MS = 800;
+let vaultCheckShownUntil = 0;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const activeEnv = (): EnvState | undefined => state.envs.find((e) => e.name === state.active);
@@ -296,7 +299,7 @@ function menuHtml() {
 function appMenuHtml() {
   const u = state.update;
   const canCheck = !['disabled', 'checking', 'downloading'].includes(u.status);
-  const vaultChecking = state.vault.status === 'checking';
+  const vaultChecking = state.vault.status === 'checking' || Date.now() < vaultCheckShownUntil;
   const problems = state.problems.length
     ? `<div class="item warn" data-act="settings">⚠ ${esc(state.problems[0])}${state.problems.length > 1 ? ` (+${state.problems.length - 1} more)` : ''}</div>`
     : '';
@@ -319,23 +322,27 @@ function appMenuHtml() {
     <div class="item ${canCheck ? '' : 'disabled'}" ${canCheck ? 'data-act="check-update"' : ''}>Check for updates</div>
     <div class="ver-line" title="${esc(u.error ?? '')}">${versionHtml()}</div>
     <div class="sep"></div>
-    <div class="item ${vaultChecking ? 'disabled' : ''}" ${vaultChecking ? '' : 'data-act="check-vault-update"'}>Check for Vault updates</div>
-    <div class="ver-line" title="${esc(state.vault.message ?? '')}">${vaultVersionHtml()}</div></div>`;
+    <div class="item ${vaultChecking ? 'disabled' : ''}" ${vaultChecking ? '' : 'data-act="check-vault-update"'}>${vaultChecking ? 'Checking for Vault updates…' : 'Check for Vault updates'}</div>
+    <div class="ver-line ${vaultChecking ? '' : state.vault.status}" title="${esc(state.vault.message ?? '')}">${vaultVersionHtml(vaultChecking)}</div></div>`;
 }
 
 /** Release tags as is, commits shortened. */
 const shortRef = (ref: string) => (/^[0-9a-f]{40}$/.test(ref) ? ref.slice(0, 7) : ref);
 
-function vaultVersionHtml(): string {
+const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+function vaultVersionHtml(checking: boolean): string {
   const v = state.vault;
+  if (checking) return `Vault (vault-mcp) ${v.ref ? esc(shortRef(v.ref)) : ''} · checking…`;
   const label: Record<VaultVersion['status'], string> = {
     checking: 'checking…',
     idle: '',
     latest: 'up to date',
-    updated: 'updated',
-    error: v.ref ? 'update check failed' : (v.message ?? 'unavailable'),
+    updated: 'updated, Vault restarted',
+    error: v.ref ? `update check failed: ${v.message ?? ''}` : (v.message ?? 'unavailable'),
   };
-  const st = label[v.status];
+  const at = v.checkedAt ? ` (checked ${clock(v.checkedAt)})` : '';
+  const st = label[v.status] + (v.status === 'idle' || !label[v.status] ? '' : at);
   return `Vault (vault-mcp) ${v.ref ? esc(shortRef(v.ref)) : ''}${st ? ` · ${esc(st)}` : ''}`;
 }
 
@@ -398,7 +405,7 @@ async function renderOverlay() {
   const key = pe
     ? `prompt:${pe.name}:${pe.prompt}:${pe.promptError ?? ''}`
     : appMenuOpen
-      ? `app:${JSON.stringify(state.update)}:${state.problems.join('|')}:${state.envs.filter((e) => e.tools.radar.status === 'ready').map((e) => e.name + e.port).join()}`
+      ? `app:${JSON.stringify(state.update)}:${JSON.stringify(state.vault)}:${Date.now() < vaultCheckShownUntil}:${state.activeTool}:${state.problems.join('|')}:${state.envs.filter((e) => e.tools.radar.status === 'ready').map((e) => e.name + e.port).join()}`
       : `menu:${menuFocus}:${JSON.stringify(state.envs.map(toolsSummary))}:${state.active}`;
   if (key === renderedOverlayKey) return;
   renderedOverlayKey = key;
@@ -425,7 +432,12 @@ overlayContent.addEventListener('click', (ev) => {
   if (act === 'settings') return void (closeMenus(), api.openSettings());
   if (act === 'reload') return void (closeMenus(), api.reloadConfig());
   if (act === 'check-update') return void api.checkUpdate();
-  if (act === 'check-vault-update') return void api.checkVaultUpdate();
+  if (act === 'check-vault-update') {
+    vaultCheckShownUntil = Date.now() + MIN_CHECKING_MS;
+    setTimeout(() => void renderOverlay(), MIN_CHECKING_MS + 10);
+    void renderOverlay();
+    return void api.checkVaultUpdate();
+  }
   if (act === 'install-update') return void api.installUpdate();
   const env = t.closest<HTMLElement>('[data-env]')?.dataset.env;
   if (env) pick(env);

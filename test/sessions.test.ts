@@ -189,7 +189,7 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
     await manager.setTool('vault');
     await manager.checkVaultUpdate();
     expect(forced.at(-1)).toBe(true);
-    expect(manager.getState().vault).toEqual({ status: 'latest', ref: 'v0.2.0' });
+    expect(manager.getState().vault).toMatchObject({ status: 'latest', ref: 'v0.2.0' });
     expect(made['vault:dev'].stops).toBe(0);
   });
 
@@ -199,7 +199,7 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
     const old = made['vault:dev'];
     release = 'v0.3.0';
     await manager.checkVaultUpdate();
-    expect(manager.getState().vault).toEqual({ status: 'updated', ref: 'v0.3.0' });
+    expect(manager.getState().vault).toMatchObject({ status: 'updated', ref: 'v0.3.0' });
     expect(old.stops).toBe(1);
     expect(made['vault:dev']).not.toBe(old);
     expect(made['vault:dev'].starts).toBe(1);

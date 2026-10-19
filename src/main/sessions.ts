@@ -508,8 +508,8 @@ export class EnvManager extends EventEmitter {
       this.vaultMcp = r;
       if (!r.ok) this.vaultVersion = { status: 'error', message: r.reason };
       else if (!force) this.vaultVersion = { status: 'idle', ref: r.ref };
-      else if (r.latestUnknown) this.vaultVersion = { status: 'error', ref: r.ref, message: 'Could not reach GitHub' };
-      else this.vaultVersion = { status: before && r.ref !== before ? 'updated' : 'latest', ref: r.ref };
+      else if (r.latestUnknown) this.vaultVersion = { status: 'error', ref: r.ref, message: 'Could not reach GitHub', checkedAt: Date.now() };
+      else this.vaultVersion = { status: before && r.ref !== before ? 'updated' : 'latest', ref: r.ref, checkedAt: Date.now() };
       this.emitState();
     });
     return this.vaultDetection;
