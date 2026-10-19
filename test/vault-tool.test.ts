@@ -7,9 +7,17 @@ import type { EnvInfo } from '../src/shared/types';
 import type { ToolContext } from '../src/main/tools/tool';
 import { VaultTool, vaultProcessEnv } from '../src/main/tools/vault';
 import { freePort } from '../src/main/radar';
+import type { VaultMcpReady } from '../src/main/vault-mcp';
 
 const fixture = join(__dirname, 'fixtures', 'fake-vault-ui.mjs');
-const mcp = { ok: true as const, root: tmpdir(), python: 'python' };
+const fixtureLauncher = (extra: Partial<VaultMcpReady> = {}): VaultMcpReady => ({
+  ok: true,
+  source: 'uvx',
+  command: [process.execPath, fixture],
+  env: {},
+  startTimeoutMs: 60_000,
+  ...extra,
+});
 const tools: VaultTool[] = [];
 const blockers: Server[] = [];
 afterEach(() => {
@@ -17,26 +25,26 @@ afterEach(() => {
   blockers.splice(0).forEach((b) => b.close());
 });
 
-async function makeTool(extraEnv: Record<string, string>, port?: number) {
+async function makeTool(extraEnv: Record<string, string>, port?: number, launcher = fixtureLauncher()) {
   const vaultPort = port ?? (await freePort());
   const info: EnvInfo = { name: 'dev', label: 'DEV', color: '#1f8f4e', profile: 'dev', context: 'acme-dev', clusterName: 'acme-dev', port: 1, vaultPort };
+  const steps: (string | undefined)[] = [];
   const ctx: ToolContext = {
     env: info,
     credentialEnv: () => ({ ...process.env, ...extraEnv }),
     kubeconfig: () => '',
     settings: {},
     binaries: {},
-    onChange: () => {},
+    onChange: () => steps.push(tool.state.step),
     emit: () => {},
     vault: {
-      mcp,
+      mcp: launcher,
       config: { env: 'dev', addr: 'https://vault.internal.dev.example', header: 'h', role: 'r', region: 'us-west-2', port: vaultPort },
-      command: [process.execPath, fixture],
     },
   };
   const tool = new VaultTool(ctx);
   tools.push(tool);
-  return { tool, port: vaultPort };
+  return { tool, port: vaultPort, steps };
 }
 
 const waitFor = async (cond: () => boolean, ms = 8000) => {
@@ -52,6 +60,12 @@ describe('VaultTool', () => {
     expect(tool.state.url).toBe(`http://127.0.0.1:${port}/`);
     await waitFor(() => !!tool.state.health);
     expect(tool.state.health).toEqual({ state: 'ok', text: 'Vault signed in' });
+  });
+
+  it('shows the first-run hint while starting', async () => {
+    const { tool, steps } = await makeTool({}, undefined, fixtureLauncher({ firstRunHint: 'Preparing Vault (first run downloads vault-mcp)…' }));
+    await tool.start();
+    expect(steps).toContain('Preparing Vault (first run downloads vault-mcp)…');
   });
 
   it('reports a pending sign-in right after start', async () => {
@@ -92,7 +106,7 @@ describe('vaultProcessEnv', () => {
   it('vault host is excluded from the proxy', () => {
     const env = vaultProcessEnv(
       { HTTPS_PROXY: 'http://127.0.0.1:7897', NO_PROXY: 'localhost', PYTHONPATH: 'J:/elsewhere' },
-      { ok: true, root: 'K:/MCP/vault-mcp', python: 'py' },
+      { ok: true, source: 'checkout', command: ['py', '-m', 'vault_mcp.web_ui'], cwd: 'K:/MCP/vault-mcp', env: { PYTHONPATH: join('K:/MCP/vault-mcp', 'src') }, startTimeoutMs: 60_000 },
       { env: 'dev', addr: 'https://vault.internal.dev.example:8200', header: 'vault.dev.example', role: 'vault_admin', region: 'us-west-2', port: 9291 },
       'acme-dev',
     );

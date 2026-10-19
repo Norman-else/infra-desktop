@@ -13,8 +13,8 @@ export interface ToolContext {
   settings: Settings;
   /** Commands as argv: executable followed by leading arguments. */
   binaries: { radar?: string[] };
-  /** Vault tool only: the vault-mcp checkout and this env's Vault settings; `command` replaces [python, -m, vault_mcp.web_ui] in tests. */
-  vault?: { mcp: VaultMcpReady; config: VaultEnvConfig; command?: string[] };
+  /** Vault tool only: how to run vault-mcp (checkout or uvx) and this env's Vault settings. */
+  vault?: { mcp: VaultMcpReady; config: VaultEnvConfig };
   /** The tool's state changed; push app state. */
   onChange(): void;
   /** Ask the window to reload this tool's page. */

@@ -5,13 +5,12 @@ import { vaultMcpEnv, type VaultMcpReady } from '../vault-mcp';
 import type { Tool, ToolContext } from './tool';
 
 const READY_LINE = /VAULT_WEB_UI_READY (\S+)/;
-const READY_TIMEOUT_MS = 60_000;
 /** After a (re-)login, "unauthenticated" means "still signing in" for this long. */
 const SIGN_IN_GRACE_MS = 45_000;
 
 /** Process env for vault-mcp's standalone UI on top of the env's isolated credential env. */
 export function vaultProcessEnv(base: NodeJS.ProcessEnv, mcp: VaultMcpReady, config: VaultEnvConfig, kubeContext: string): NodeJS.ProcessEnv {
-  const env = vaultMcpEnv(mcp.root, base);
+  const env = vaultMcpEnv(mcp.env, base);
   const E = config.env.toUpperCase();
   Object.assign(env, {
     VAULT_MCP_AWS_CREDENTIALS: 'ambient',
@@ -72,7 +71,7 @@ export class VaultTool implements Tool {
     if (!vault) return this.fail('Vault is not configured for this environment.');
     const { mcp, config } = vault;
     this.log = [];
-    this.state = { status: 'starting', step: 'Starting Vault…' };
+    this.state = { status: 'starting', step: mcp.firstRunHint ?? 'Starting Vault…' };
     this.ctx.onChange();
 
     try {
@@ -81,10 +80,10 @@ export class VaultTool implements Tool {
     } catch (e) {
       return this.fail(`Could not write kubeconfig: ${(e as Error).message}`);
     }
-    const command = vault.command ?? [mcp.python, '-m', 'vault_mcp.web_ui'];
+    const command = mcp.command;
     const args = [...command.slice(1), '--env', config.env, '--port', String(config.port), '--host', '127.0.0.1'];
     const child = spawn(command[0], args, {
-      cwd: mcp.root,
+      cwd: mcp.cwd,
       env: vaultProcessEnv(this.ctx.credentialEnv(), mcp, config, this.ctx.env.context),
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -93,7 +92,7 @@ export class VaultTool implements Tool {
     this.loginAt = Date.now();
 
     const url = await new Promise<string | undefined>((resolve) => {
-      const timer = setTimeout(() => resolve(undefined), READY_TIMEOUT_MS);
+      const timer = setTimeout(() => resolve(undefined), mcp.startTimeoutMs);
       const onLine = (d: Buffer) => {
         for (const line of d.toString().split(/\r?\n/)) {
           if (!line.trim()) continue;

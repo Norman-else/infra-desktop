@@ -18,6 +18,10 @@ export interface Settings {
   vaultMcpPath?: string;
   /** Python for vault-mcp; defaults to the checkout's .venv */
   vaultPython?: string;
+  /** How to run vault-mcp: a checkout, uvx with a pinned version, or auto (checkout when present, else uvx) */
+  vaultMcpSource?: 'auto' | 'checkout' | 'uvx';
+  /** vault-mcp git ref (sha or tag) run with uvx; defaults to the version this desktop release pins */
+  vaultMcpRef?: string;
   /** Per-profile overrides, keyed by AWS profile name */
   envs?: Record<string, EnvOverride>;
 }
@@ -43,6 +47,6 @@ export function loadSettings(file: string): Settings {
   }
   const raw = JSON.parse(readFileSync(file, 'utf8')) as Settings;
   // Treat empty strings from the template as "not set".
-  for (const k of ['awsVaultPath', 'awsVaultBackend', 'radarPath', 'kubeconfig', 'duration', 'vaultMcpPath', 'vaultPython'] as const) if (!raw[k]) delete raw[k];
+  for (const k of ['awsVaultPath', 'awsVaultBackend', 'radarPath', 'kubeconfig', 'duration', 'vaultMcpPath', 'vaultPython', 'vaultMcpRef'] as const) if (!raw[k]) delete raw[k];
   return raw;
 }

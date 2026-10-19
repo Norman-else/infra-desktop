@@ -63,7 +63,7 @@ describe.skipIf(!existsSync(fake))('EnvManager with tools', () => {
       radar: (ctx) => (made[`radar:${ctx.env.name}`] = new FakeTool('radar', ctx)),
       vault: (ctx) => (made[`vault:${ctx.env.name}`] = new FakeTool('vault', ctx)),
     }, {
-      detectVault: async () => ({ ok: true, root: dir, python: 'python' }),
+      detectVault: async () => ({ ok: true, source: 'checkout', command: ['python', '-m', 'vault_mcp.web_ui'], cwd: dir, env: {}, startTimeoutMs: 60_000 }),
       claudeJsonPath: join(dir, 'claude.json'),
     });
     writeFileSync(join(dir, 'claude.json'), JSON.stringify({ mcpServers: { vault: { env: { VAULT_ADDR_DEV: 'https://vault.dev.example' } } } }));
@@ -180,7 +180,7 @@ describe('Vault availability', () => {
   };
 
   it('vault availability is per environment', async () => {
-    const m = await setup(async () => ({ ok: true, root: tmpdir(), python: 'python' }));
+    const m = await setup(async () => ({ ok: true, source: 'uvx', command: ['uvx'], env: {}, startTimeoutMs: 300_000 }));
     expect(m.availability('vault', 'dev')).toEqual({ available: true });
     expect(m.availability('vault', 'sat')).toEqual({ available: false, reason: 'No Vault address for SAT. Add it to the vault MCP server or settings.' });
     expect(m.getState().envs.find((e) => e.name === 'sat')!.tools.vault.available).toBe(false);
