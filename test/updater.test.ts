@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({ app: {} }));
-const { findAppBundle, installTarget, isNewer } = await import('../src/main/updater');
+const { findAppBundle, installTarget, isNewer, macUpdateArch } = await import('../src/main/updater');
 
 describe('isNewer', () => {
   it('compares semver parts numerically', () => {
@@ -12,6 +12,14 @@ describe('isNewer', () => {
     expect(isNewer('v1.0.0', '0.9.9')).toBe(true);
     expect(isNewer('0.1.0', '0.1.0')).toBe(false);
     expect(isNewer('0.1.0', '0.2.0')).toBe(false);
+  });
+});
+
+describe('macUpdateArch', () => {
+  it('moves an x64 build running under Rosetta to arm64', () => {
+    expect(macUpdateArch('x64', true)).toBe('arm64');
+    expect(macUpdateArch('x64', false)).toBe('x64');
+    expect(macUpdateArch('arm64', false)).toBe('arm64');
   });
 });
 

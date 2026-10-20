@@ -37,6 +37,14 @@ export function findAppBundle(dir: string): string {
   return join(dir, apps[0]);
 }
 
+/**
+ * The arch to download. Under Rosetta process.arch says x64, so an x64 install on Apple Silicon would keep
+ * updating to x64 forever; move it to arm64 instead.
+ */
+export function macUpdateArch(arch: string, underRosetta: boolean): string {
+  return underRosetta ? 'arm64' : arch;
+}
+
 /** Where the updated bundle goes: the current bundle's folder, under the current product name. */
 export function installTarget(currentBundle: string, productName: string): string {
   return join(dirname(currentBundle), `${productName}.app`);
@@ -141,9 +149,9 @@ function macUpdater(state: UpdateState, set: (p: Partial<UpdateState>) => void, 
       const have = staged && state.version ? state.version : state.current;
       if (!isNewer(manifest.version, have)) return set({ status: staged ? 'ready' : 'latest' });
 
-      const wantArm = process.arch === 'arm64';
-      const file = manifest.files.find((f) => f.url.endsWith('.zip') && f.url.includes('arm64') === wantArm);
-      if (!file) throw new Error(`Version ${manifest.version} has no ${process.arch} zip`);
+      const arch = macUpdateArch(process.arch, app.runningUnderARM64Translation);
+      const file = manifest.files.find((f) => f.url.endsWith('.zip') && f.url.includes('arm64') === (arch === 'arm64'));
+      if (!file) throw new Error(`Version ${manifest.version} has no ${arch} zip`);
 
       set({ status: 'downloading', version: manifest.version, progress: 0 });
       const dir = mkdtempSync(join(tmpdir(), 'infra-desktop-update-'));
