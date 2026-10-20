@@ -17,6 +17,14 @@ export function radarHealth(body: { state?: string; error?: string; errorType?: 
   return { state: 'failed', text, detail: body.error || undefined };
 }
 
+/** How long a renewal waits for radar to reconnect, how often it polls, and how often it re-asks for a retry. */
+const RECOVER_TIMEOUT_MS = 60_000;
+const POLL_MS = 1000;
+const RETRY_EVERY_MS = 5000;
+
+/** A function, so TS doesn't keep the health narrowed from before an await. */
+const healthy = (t: RadarTool) => t.state.health?.state === 'ok';
+
 export class RadarTool implements Tool {
   readonly kind = 'radar' as const;
   state: ToolState = { status: 'stopped' };
@@ -84,24 +92,35 @@ export class RadarTool implements Tool {
   }
 
   /**
-   * After new credentials, make radar retry right away if it lost the cluster (e.g. they had expired):
-   * radar's own background re-check can take a long time, and its page waits for that.
+   * After new credentials, get radar back onto the cluster if it lost it (e.g. they had expired). Radar's own
+   * reconnect loop backs off up to minutes, and its error page stops retrying while credentials are bad.
    */
   async onCredentialsRenewed(): Promise<void> {
     const radar = this.radar;
     if (!radar || this.state.status !== 'ready') return;
-    const wasDown = this.state.health?.state === 'failed';
-    if (wasDown) {
-      this.update({ health: { state: 'pending', text: 'Connecting to cluster' } });
-      try {
-        await fetch(`${radar.url}api/connection/retry`, { method: 'POST', signal: AbortSignal.timeout(30_000) });
-      } catch {
-        /* the health check below reports the outcome */
-      }
-    }
+    // The cached health can be a poll old; radar may have dropped the cluster since.
     await this.checkHealth();
+    if (this.radar !== radar || this.state.health?.state === 'ok') return;
+    const deadline = Date.now() + RECOVER_TIMEOUT_MS;
+    let lastRetry = -Infinity;
+    while (this.radar === radar && Date.now() < deadline) {
+      // Down (not already reconnecting): ask for a retry, again every few seconds, since one can be refused
+      // while radar's own reconnect is in flight.
+      if (this.state.health?.state === 'failed' && Date.now() - lastRetry >= RETRY_EVERY_MS) {
+        lastRetry = Date.now();
+        this.update({ health: { state: 'pending', text: 'Connecting to cluster' } });
+        try {
+          await fetch(`${radar.url}api/connection/retry`, { method: 'POST', signal: AbortSignal.timeout(30_000) });
+        } catch {
+          /* the health check below reports the outcome */
+        }
+      }
+      await this.checkHealth();
+      if (healthy(this)) break;
+      await new Promise((r) => setTimeout(r, POLL_MS));
+    }
     // Its page may still show the error screen; reload it once the cluster is back.
-    if (wasDown && this.state.health?.state === 'ok') this.ctx.emit('reload-view');
+    if (this.radar === radar && healthy(this)) this.ctx.emit('reload-view');
   }
 
   /** Ask radar whether it can actually reach the cluster; credentials being valid doesn't mean it can. */

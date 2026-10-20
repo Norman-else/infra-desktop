@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -54,11 +54,34 @@ describe('RadarTool', () => {
 
   it('retries the connection after renewal when it was down', async () => {
     const log = join(mkdtempSync(join(tmpdir(), 'retry-')), 'retry.log');
-    const { tool } = await makeTool({ FAKE_RADAR_STATE: 'disconnected', FAKE_RADAR_ERROR_TYPE: 'auth-rejected', FAKE_RADAR_RETRY_LOG: log });
+    const { tool } = await makeTool({ FAKE_RADAR_STATE: 'disconnected', FAKE_RADAR_ERROR_TYPE: 'auth-rejected', FAKE_RADAR_RETRY_LOG: log, FAKE_RADAR_RETRY_CONNECTS: '0' });
     await tool.start();
     await waitFor(() => !!tool.state.health);
     await tool.onCredentialsRenewed();
     expect(existsSync(log) && readFileSync(log, 'utf8')).toBe('retry\n');
+  });
+
+  it('re-checks health on renewal, so a drop the last poll missed still gets a retry and a reload', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'renew-'));
+    const [log, stateFile] = [join(dir, 'retry.log'), join(dir, 'state')];
+    const { tool, events } = await makeTool({ FAKE_RADAR_RETRY_LOG: log, FAKE_RADAR_STATE_FILE: stateFile, FAKE_RADAR_ERROR_TYPE: 'auth-rejected', FAKE_RADAR_RETRY_CONNECTS: '2' });
+    await tool.start();
+    expect(tool.state.health?.state).toBe('ok');
+    writeFileSync(stateFile, 'disconnected'); // radar demoted itself after the last health poll
+    await tool.onCredentialsRenewed();
+    expect(readFileSync(log, 'utf8')).toBe('retry\n');
+    // It reported `connecting` for a while; the page is reloaded only once it is connected.
+    expect(tool.state.health?.state).toBe('ok');
+    expect(events).toEqual(['reload-view']);
+  });
+
+  it('leaves a connected radar alone on renewal', async () => {
+    const log = join(mkdtempSync(join(tmpdir(), 'renew-')), 'retry.log');
+    const { tool, events } = await makeTool({ FAKE_RADAR_STATE: 'connected', FAKE_RADAR_RETRY_LOG: log });
+    await tool.start();
+    await tool.onCredentialsRenewed();
+    expect(existsSync(log)).toBe(false);
+    expect(events).toEqual([]);
   });
 
   it('reports an error when radar exits', async () => {
