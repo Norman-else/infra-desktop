@@ -69,6 +69,68 @@ describe('discoverEnvs', () => {
   });
 });
 
+describe('singleContextKubeConfig EKS credentials', () => {
+  function kubeWithExec(exec: Record<string, unknown>) {
+    const kube = mergeKubeConfigs([kubeYaml]);
+    kube.users![0].user = { exec, 'client-key': 'keep-other-user-fields' };
+    return kube;
+  }
+
+  it.each(['aws', 'aws.exe', '/opt/homebrew/bin/aws', 'C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe'])(
+    'uses the app credentials for %s while preserving EKS arguments and the source config',
+    (command) => {
+      const keptArgs = ['--region', 'us-west-2', 'eks', 'get-token', '--cluster-name', 'acme-dev', '--role-arn', 'arn:aws:iam::222222222222:role/cluster-access', '--output', 'json'];
+      const kube = kubeWithExec({
+        apiVersion: 'client.authentication.k8s.io/v1beta1',
+        command,
+        args: ['--profile', 'dev', ...keptArgs, '--profile=dev'],
+        interactiveMode: 'Never',
+      });
+      const before = structuredClone(kube);
+      const out = YAML.parse(singleContextKubeConfig(kube, 'acme-dev'));
+      expect(out.users[0].user).toEqual({
+        'client-key': 'keep-other-user-fields',
+        exec: { apiVersion: 'client.authentication.k8s.io/v1beta1', command, args: keptArgs, interactiveMode: 'Never' },
+      });
+      expect(kube).toEqual(before);
+    },
+  );
+
+  it('removes exec credential sources while retaining region and unrelated environment variables', () => {
+    const overrides = [
+      'AWS_PROFILE', 'AWS_DEFAULT_PROFILE',
+      'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_SECURITY_TOKEN',
+      'AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE', 'AWS_CREDENTIAL_FILE', 'BOTO_CONFIG',
+      'AWS_WEB_IDENTITY_TOKEN_FILE', 'AWS_ROLE_ARN', 'AWS_ROLE_SESSION_NAME',
+      'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
+      'AWS_CONTAINER_AUTHORIZATION_TOKEN', 'AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE',
+    ].map((name) => ({ name, value: 'stale-override' }));
+    const kept = [
+      { name: 'AWS_REGION', value: 'us-west-2' },
+      { name: 'AWS_DEFAULT_REGION', value: 'us-west-2' },
+      { name: 'HTTPS_PROXY', value: 'http://proxy.example:8080' },
+      { name: 'CUSTOM_FLAG', value: 'keep' },
+    ];
+    const kube = kubeWithExec({ command: 'aws', args: ['eks', 'get-token'], env: [...overrides, ...kept] });
+    const before = structuredClone(kube);
+    const out = YAML.parse(singleContextKubeConfig(kube, 'acme-dev'));
+    expect(out.users[0].user.exec.env).toEqual(kept);
+    expect(kube).toEqual(before);
+  });
+
+  it.each([
+    { command: 'aws-iam-authenticator', args: ['token', '--profile', 'dev'] },
+    { command: 'custom-aws', args: ['eks', 'get-token', '--profile', 'dev'] },
+    { command: 'aws', args: ['eks', 'describe-cluster', '--profile', 'dev'] },
+    { command: 'aws', args: ['sts', 'get-caller-identity', '--profile', 'dev'] },
+  ])('preserves other exec plugins: $command $args', (exec) => {
+    const userExec = { ...exec, env: [{ name: 'AWS_PROFILE', value: 'dev' }] };
+    const kube = kubeWithExec(userExec);
+    const out = YAML.parse(singleContextKubeConfig(kube, 'acme-dev'));
+    expect(out.users[0].user.exec).toEqual(userExec);
+  });
+});
+
 describe('ports', () => {
   it('assigns 9281, 9282, … in list order and keeps configured ports', () => {
     const envs = discoverEnvs(parseAwsConfig(awsConfig), mergeKubeConfigs([kubeYaml]), { sat: { port: 9282 }, prod: { port: 9500 } });

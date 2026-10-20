@@ -146,6 +146,45 @@ export function assignPorts(envs: { port: number }[]): void {
   }
 }
 
+interface ExecUser {
+  exec?: { command?: string; args?: string[]; env?: { name: string; value: string }[]; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+const AWS_CREDENTIAL_OVERRIDES = new Set([
+  'AWS_PROFILE', 'AWS_DEFAULT_PROFILE',
+  'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_SECURITY_TOKEN',
+  'AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE', 'AWS_CREDENTIAL_FILE', 'BOTO_CONFIG',
+  'AWS_WEB_IDENTITY_TOKEN_FILE', 'AWS_ROLE_ARN', 'AWS_ROLE_SESSION_NAME',
+  'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
+  'AWS_CONTAINER_AUTHORIZATION_TOKEN', 'AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE',
+]);
+
+/** EKS must use the app's credential endpoint, not a profile or credentials embedded by update-kubeconfig. */
+function isolatedEksUser(user: NamedEntry<unknown>): NamedEntry<unknown> {
+  const config = user.user as ExecUser | undefined;
+  const exec = config?.exec;
+  if (!exec?.command || !/(^|[/\\])aws(?:\.exe)?$/i.test(exec.command) ||
+      !exec.args?.some((arg, i) => arg === 'eks' && exec.args![i + 1] === 'get-token')) return user;
+  const args: string[] = [];
+  for (let i = 0; i < exec.args.length; i++) {
+    const arg = exec.args[i];
+    if (arg === '--profile') { i++; continue; }
+    if (!arg.startsWith('--profile=')) args.push(arg);
+  }
+  return {
+    ...user,
+    user: {
+      ...config,
+      exec: {
+        ...exec,
+        args,
+        ...(exec.env ? { env: exec.env.filter(({ name }) => !AWS_CREDENTIAL_OVERRIDES.has(name.toUpperCase())) } : {}),
+      },
+    },
+  };
+}
+
 /** A kubeconfig containing only the env's context, so radar can't switch to a cluster these credentials don't cover. */
 export function singleContextKubeConfig(kube: KubeConfig, ctxName: string): string {
   const ctx = kube.contexts!.find((c) => c.name === ctxName)!;
@@ -157,7 +196,7 @@ export function singleContextKubeConfig(kube: KubeConfig, ctxName: string): stri
     'current-context': ctxName,
     contexts: [ctx],
     clusters: cluster ? [cluster] : [],
-    users: user ? [user] : [],
+    users: user ? [isolatedEksUser(user)] : [],
   };
   return YAML.stringify(doc);
 }
