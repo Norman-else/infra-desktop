@@ -1,7 +1,7 @@
 {
   "name": "infra-desktop",
   "productName": "Infra Desktop",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "description": "Desktop app for Radar and Vault per environment: switch AWS environments with aws-vault + MFA once and use both in-app",
   "main": "dist/main.js",
   "private": true,
