@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AppState, VaultVersion, EnvInfo, EnvState, ToolAvailability, ToolKind, ToolState, UpdateState } from '../shared/types';
+import type { AppState, RadarVersion, VaultVersion, EnvInfo, EnvState, ToolAvailability, ToolKind, ToolState, UpdateState } from '../shared/types';
 import { CredentialServer, cleanAwsEnv, clearSessions, detectBackend, fetchCredentials, profileHasSession, type FetchResult } from './credentials';
 import { discoverEnvs, mergeKubeConfigs, parseAwsConfig, singleContextKubeConfig, type KubeConfig } from './discovery';
 import { awsConfigPath, effectivePath, kubeconfigPaths, resolveBinary, which } from './paths';
@@ -11,6 +11,7 @@ import type { Tool, ToolContext } from './tools/tool';
 import { VaultTool } from './tools/vault';
 import { discoverVault, type DiscoveredVault } from './vault-discovery';
 import { readClaudeVaultEnv, resolveVaultConfig, type VaultEnvConfig } from './vault-config';
+import { brewFormula, brewUpgrade, radarCurrentVersion, radarLatestVersion } from './radar-version';
 import { detectVaultMcp, LATEST_CHECK_INTERVAL_MS, type VaultMcp } from './vault-mcp';
 
 type Purpose = 'connect' | 'renew';
@@ -341,6 +342,8 @@ export class EnvManager extends EventEmitter {
   vaultMcp?: VaultMcp;
   private vaultDetection: Promise<void> = Promise.resolve();
   vaultVersion: VaultVersion = { status: 'checking' };
+  radarVersion: RadarVersion = { status: 'checking' };
+  private radarCheck?: Promise<void>;
   private claudeVaultEnv: Record<string, string> = {};
   private vaultRefresh?: NodeJS.Timeout;
   private isShutDown = false;
@@ -525,6 +528,46 @@ export class EnvManager extends EventEmitter {
     if (after && after !== before) await Promise.all([...this.sessions.values()].map((s) => s.restartTool('vault')));
   }
 
+  /** Compare the radar binary in use with radar's latest GitHub release. */
+  checkRadarUpdate(): Promise<void> {
+    if (this.radarVersion.status === 'upgrading') return Promise.resolve();
+    return (this.radarCheck ??= this.lookUpRadar().finally(() => (this.radarCheck = undefined)));
+  }
+
+  private async lookUpRadar(): Promise<void> {
+    const bin = this.binaries.radar;
+    if (!bin) return this.setRadarVersion({ status: 'error', message: 'radar not found' });
+    this.setRadarVersion({ ...this.radarVersion, status: 'checking', message: undefined });
+    const brew = !!brewFormula(bin);
+    try {
+      const [current, latest] = await Promise.all([radarCurrentVersion(bin), radarLatestVersion()]);
+      // ponytail: "different" counts as outdated; a radar newer than its latest release is not expected.
+      this.setRadarVersion({ status: current === latest ? 'latest' : 'outdated', current, latest, brew, checkedAt: Date.now() });
+    } catch (e) {
+      this.setRadarVersion({ ...this.radarVersion, status: 'error', brew, message: (e as Error).message, checkedAt: Date.now() });
+    }
+  }
+
+  /** `brew upgrade` the radar formula, then restart every running radar on the new binary. */
+  async upgradeRadar(): Promise<void> {
+    const b = this.binaries.radar ? brewFormula(this.binaries.radar) : undefined;
+    if (!b || this.radarVersion.status === 'upgrading') return;
+    this.setRadarVersion({ ...this.radarVersion, status: 'upgrading', message: undefined });
+    try {
+      await brewUpgrade(b);
+    } catch (e) {
+      return this.setRadarVersion({ ...this.radarVersion, status: 'error', message: `brew upgrade failed: ${(e as Error).message}` });
+    }
+    await Promise.all([...this.sessions.values()].map((s) => s.restartTool('radar')));
+    const current = await radarCurrentVersion(this.binaries.radar!).catch(() => undefined);
+    this.setRadarVersion({ ...this.radarVersion, status: 'updated', current, checkedAt: Date.now() });
+  }
+
+  private setRadarVersion(v: RadarVersion): void {
+    this.radarVersion = v;
+    this.emitState();
+  }
+
   /** aws-vault backend to use: from settings, else whichever backend actually holds keys (detected once per reload). */
   awsVaultBackend(): Promise<string | undefined> {
     if (this.settings.awsVaultBackend) return Promise.resolve(this.settings.awsVaultBackend);
@@ -583,6 +626,7 @@ export class EnvManager extends EventEmitter {
       update: this.update,
       activeTool: this.activeTool,
       vault: this.vaultVersion,
+      radar: this.radarVersion,
     };
   }
 

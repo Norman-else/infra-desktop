@@ -84,6 +84,17 @@ export interface VaultVersion {
   checkedAt?: number;
 }
 
+/** The radar binary in use and the last update check. */
+export interface RadarVersion {
+  status: 'checking' | 'latest' | 'outdated' | 'upgrading' | 'updated' | 'error';
+  current?: string;
+  latest?: string;
+  /** Installed with Homebrew, so the app can upgrade it */
+  brew?: boolean;
+  message?: string;
+  checkedAt?: number;
+}
+
 export interface AppState {
   envs: EnvState[];
   active: string | null;
@@ -94,6 +105,7 @@ export interface AppState {
   /** Tool shown in the window (global: switching environment keeps it) */
   activeTool: ToolKind;
   vault: VaultVersion;
+  radar: RadarVersion;
 }
 
 export interface RadarDesktopApi {
@@ -121,5 +133,8 @@ export interface RadarDesktopApi {
   /** Look for a newer vault-mcp release now and move running Vault to it */
   checkVaultUpdate(): Promise<void>;
   installUpdate(): Promise<void>;
+  checkRadarUpdate(): Promise<void>;
+  /** brew upgrade radar, then restart every running radar */
+  upgradeRadar(): Promise<void>;
   reloadConfig(): Promise<void>;
 }

@@ -165,6 +165,8 @@ function registerIpc() {
   ipcMain.handle('settings:reload', () => manager.reload());
   ipcMain.handle('update:check', () => updater?.check());
   ipcMain.handle('vault:check-update', () => manager.checkVaultUpdate());
+  ipcMain.handle('radar:check-update', () => manager.checkRadarUpdate());
+  ipcMain.handle('radar:upgrade', () => manager.upgradeRadar());
   ipcMain.handle('update:install', () => updater?.install());
 }
 
@@ -209,6 +211,7 @@ async function main() {
   registerIpc();
   buildMenu();
   await manager.init();
+  void manager.checkRadarUpdate();
   updater = createUpdater(
     (u) => {
       manager.update = u;

@@ -1,4 +1,4 @@
-import type { AppState, EnvState, RadarDesktopApi, ToolKind, VaultVersion } from '../shared/types';
+import type { AppState, EnvState, RadarDesktopApi, RadarVersion, ToolKind, VaultVersion } from '../shared/types';
 
 declare global {
   interface Window { radarDesktop: RadarDesktopApi }
@@ -12,7 +12,7 @@ const overlay = $('overlay');
 const backdrop = $<HTMLImageElement>('backdrop');
 const overlayContent = $('overlay-content');
 
-let state: AppState = { envs: [], active: null, problems: [], settingsPath: '', update: { status: 'disabled', current: '' }, activeTool: 'radar', vault: { status: 'checking' } };
+let state: AppState = { envs: [], active: null, problems: [], settingsPath: '', update: { status: 'disabled', current: '' }, activeTool: 'radar', vault: { status: 'checking' }, radar: { status: 'checking' } };
 let menuOpen = false;
 /** The ⚙ menu: settings, config reload, version and updates */
 let appMenuOpen = false;
@@ -95,7 +95,7 @@ function toolSwitchHtml(): string {
 }
 
 function gearHtml(): string {
-  const dot = state.update.status === 'ready' || state.problems.length ? '<span class="dot"></span>' : '';
+  const dot = state.update.status === 'ready' || state.radar.status === 'outdated' || state.problems.length ? '<span class="dot"></span>' : '';
   return `<button class="gear-btn ${appMenuOpen ? 'open' : ''}" data-act="app-menu" title="Settings and updates">⚙${dot}</button>`;
 }
 
@@ -323,7 +323,29 @@ function appMenuHtml() {
     <div class="ver-line" title="${esc(u.error ?? '')}">${versionHtml()}</div>
     <div class="sep"></div>
     <div class="item ${vaultChecking ? 'disabled' : ''}" ${vaultChecking ? '' : 'data-act="check-vault-update"'}>${vaultChecking ? 'Checking for Vault updates…' : 'Check for Vault updates'}</div>
-    <div class="ver-line ${vaultChecking ? '' : state.vault.status}" title="${esc(state.vault.message ?? '')}">${vaultVersionHtml(vaultChecking)}</div></div>`;
+    <div class="ver-line ${vaultChecking ? '' : state.vault.status}" title="${esc(state.vault.message ?? '')}">${vaultVersionHtml(vaultChecking)}</div>
+    <div class="sep"></div>${radarMenuHtml()}</div>`;
+}
+
+function radarMenuHtml(): string {
+  const r = state.radar;
+  const busy = r.status === 'checking' || r.status === 'upgrading';
+  const upgrade =
+    r.status === 'outdated' && r.brew
+      ? `<div class="item accent" data-act="upgrade-radar">⬆ Upgrade radar to v${esc(r.latest ?? '')} (brew upgrade, restarts radar)</div>`
+      : '';
+  const check = `<div class="item ${busy ? 'disabled' : ''}" ${busy ? '' : 'data-act="check-radar-update"'}>${r.status === 'checking' ? 'Checking for radar updates…' : 'Check for radar updates'}</div>`;
+  const label: Record<RadarVersion['status'], string> = {
+    checking: 'checking…',
+    latest: 'up to date',
+    outdated: `v${r.latest ?? ''} available${r.brew ? '' : ' · not installed with Homebrew, update it yourself'}`,
+    upgrading: 'upgrading with Homebrew…',
+    updated: 'updated, radar restarted',
+    error: `update check failed: ${r.message ?? ''}`,
+  };
+  const at = r.checkedAt && !busy ? ` (checked ${clock(r.checkedAt)})` : '';
+  const cls = r.status === 'outdated' ? 'error' : r.status;
+  return `${upgrade}${check}<div class="ver-line ${cls}" title="${esc(r.message ?? '')}">radar ${r.current ? `v${esc(r.current)}` : ''} · ${esc(label[r.status])}${at}</div>`;
 }
 
 /** Release tags as is, commits shortened. */
@@ -405,7 +427,7 @@ async function renderOverlay() {
   const key = pe
     ? `prompt:${pe.name}:${pe.prompt}:${pe.promptError ?? ''}`
     : appMenuOpen
-      ? `app:${JSON.stringify(state.update)}:${JSON.stringify(state.vault)}:${Date.now() < vaultCheckShownUntil}:${state.activeTool}:${state.problems.join('|')}:${state.envs.filter((e) => e.tools.radar.status === 'ready').map((e) => e.name + e.port).join()}`
+      ? `app:${JSON.stringify(state.update)}:${JSON.stringify(state.vault)}:${JSON.stringify(state.radar)}:${Date.now() < vaultCheckShownUntil}:${state.activeTool}:${state.problems.join('|')}:${state.envs.filter((e) => e.tools.radar.status === 'ready').map((e) => e.name + e.port).join()}`
       : `menu:${menuFocus}:${JSON.stringify(state.envs.map(toolsSummary))}:${state.active}`;
   if (key === renderedOverlayKey) return;
   renderedOverlayKey = key;
@@ -439,6 +461,8 @@ overlayContent.addEventListener('click', (ev) => {
     return void api.checkVaultUpdate();
   }
   if (act === 'install-update') return void api.installUpdate();
+  if (act === 'check-radar-update') return void api.checkRadarUpdate();
+  if (act === 'upgrade-radar') return void api.upgradeRadar();
   const env = t.closest<HTMLElement>('[data-env]')?.dataset.env;
   if (env) pick(env);
 });

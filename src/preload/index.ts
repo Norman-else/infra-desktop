@@ -20,6 +20,8 @@ const api: RadarDesktopApi = {
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   checkVaultUpdate: () => ipcRenderer.invoke('vault:check-update'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
+  checkRadarUpdate: () => ipcRenderer.invoke('radar:check-update'),
+  upgradeRadar: () => ipcRenderer.invoke('radar:upgrade'),
   reloadConfig: () => ipcRenderer.invoke('settings:reload'),
 };
 
