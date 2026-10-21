@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -35,6 +35,16 @@ describe.skipIf(!existsSync(fake))('fetchCredentials (fake aws-vault)', () => {
     expect(r.kind === 'ok' && r.creds.AccessKeyId).toBe('ASIAFAKEDEV');
     const again = await fetchCredentials({ ...opts, profile: 'sat' });
     expect(again.kind === 'ok' && again.creds.AccessKeyId).toBe('ASIAFAKESAT');
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('fetchCredentials without a terminal', () => {
+  it('reports need-mfa when aws-vault cannot open /dev/tty', async () => {
+    const script = join(process.env.FAKE_AWS_VAULT_DIR!, 'no-tty-aws-vault');
+    writeFileSync(script, '#!/bin/sh\necho "aws-vault: error: exec: Failed to get credentials for prod: open /dev/tty: device not configured" >&2\nexit 1\n');
+    chmodSync(script, 0o755);
+    expect((await fetchCredentials({ awsVault: script, profile: 'prod', path: effectivePath() })).kind).toBe('need-mfa');
+    expect((await fetchCredentials({ awsVault: script, profile: 'prod', path: effectivePath(), mfaToken: '123456' })).kind).toBe('error');
   });
 });
 

@@ -30,6 +30,8 @@ export interface FetchOptions {
 
 const MFA_PROMPT = /enter (mfa|token)|mfa code|mfa token/i;
 const PASSPHRASE_PROMPT = /passphrase/i;
+// aws-vault wanted to prompt but we have no terminal (macOS: "open /dev/tty: device not configured").
+const NO_TTY = /\/dev\/tty/;
 
 /** Env for aws-vault: never inherit credentials from a parent aws-vault shell, and force a prompt we can detect. */
 export function cleanAwsEnv(path: string): NodeJS.ProcessEnv {
@@ -95,6 +97,7 @@ export function fetchCredentials(o: FetchOptions): Promise<FetchResult> {
       // Prompt text may arrive together with the failure (e.g. stdin closed), check once more.
       if (!o.passphrase && PASSPHRASE_PROMPT.test(stderr)) return finish({ kind: 'need-passphrase' });
       if (!o.mfaToken && MFA_PROMPT.test(stderr)) return finish({ kind: 'need-mfa' });
+      if (!o.mfaToken && NO_TTY.test(stderr)) return finish(onTimeout());
       finish({ kind: 'error', message: explainAwsVaultError(stderr.trim() || `aws-vault exited with code ${code}`) });
     });
   });
