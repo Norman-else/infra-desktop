@@ -1,7 +1,8 @@
 // Stand-in for `python -m vault_mcp.web_ui` in tests: same flags, ready line, /api/health and /api/login.
 // FAKE_VAULT_STATE sets the health ("authenticated" / "unauthenticated" / "error");
 // FAKE_VAULT_LOGIN_FIXES=1 makes POST /api/login switch it to "authenticated";
-// requests are appended to FAKE_VAULT_LOG.
+// requests are appended to FAKE_VAULT_LOG;
+// FAKE_VAULT_EXIT_DELAY_MS keeps the port for that long after SIGTERM, like a slow shutdown.
 import { appendFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 
@@ -29,6 +30,8 @@ server.on('error', () => {
   console.error(`Port ${port} is already in use`);
   process.exit(2);
 });
+if (process.env.FAKE_VAULT_EXIT_DELAY_MS)
+  process.on('SIGTERM', () => setTimeout(() => process.exit(0), Number(process.env.FAKE_VAULT_EXIT_DELAY_MS)));
 if (process.env.FAKE_VAULT_READY_EARLY === '1') {
   // Like vault-mcp: the ready line can come just before the server accepts connections.
   console.log(`VAULT_WEB_UI_READY http://127.0.0.1:${port}`);

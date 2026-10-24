@@ -89,6 +89,15 @@ describe('VaultTool', () => {
     expect(tool.state.health).toEqual({ state: 'ok', text: 'Vault signed in' });
   });
 
+  it('restart waits for the stopped Vault to release its port', async () => {
+    const { tool, port } = await makeTool({ FAKE_VAULT_STATE: 'authenticated', FAKE_VAULT_EXIT_DELAY_MS: '1500' });
+    await tool.start();
+    expect(tool.state.status).toBe('ready');
+    await tool.start();
+    expect(tool.state.status).toBe('ready');
+    expect(tool.state.url).toBe(`http://127.0.0.1:${port}/`);
+  }, 30_000);
+
   it('busy port is reported', async () => {
     const port = await freePort();
     const blocker = createServer().listen(port, '127.0.0.1');

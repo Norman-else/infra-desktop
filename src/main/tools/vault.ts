@@ -73,6 +73,7 @@ export class VaultTool implements Tool {
   }
 
   async start(): Promise<void> {
+    const restarting = !!this.child;
     this.stop();
     const generation = this.generation;
     const vault = this.ctx.vault;
@@ -88,6 +89,8 @@ export class VaultTool implements Tool {
     } catch (e) {
       return this.fail(`Could not write kubeconfig: ${(e as Error).message}`);
     }
+    // On a restart the Vault just stopped can hold the port while it exits; give it a few seconds.
+    for (let i = 0; restarting && i < 50 && !(await portFree(config.port)); i++) await new Promise((r) => setTimeout(r, 200));
     // vault-mcp left running after the app ended (its uvx gone) still holds the port: kill it.
     // Any other listener is left alone, and vault-mcp reports the port as in use.
     if (!(await portFree(config.port))) await reclaimPort('vault', config.port);
