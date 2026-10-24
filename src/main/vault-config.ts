@@ -13,6 +13,8 @@ export interface VaultEnvConfig {
   role?: string;
   region?: string;
   port: number;
+  /** Other envs' Vault web UI ports by vault env name, for cross-environment compare. */
+  peers?: Record<string, number>;
 }
 
 /** Only these keys are ever read from Claude's config — never tokens or other secrets. */

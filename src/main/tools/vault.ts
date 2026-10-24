@@ -26,6 +26,8 @@ export function vaultProcessEnv(base: NodeJS.ProcessEnv, mcp: VaultMcpReady, con
   set(`VAULT_HEADER_${E}`, config.header);
   set(`VAULT_ROLE_${E}`, config.role);
   set(`AWS_REGION_${E}`, config.region);
+  // Other envs' Vault web UIs on this machine; vault-mcp asks them for key fingerprints only.
+  set('VAULT_MCP_PEERS', Object.entries(config.peers ?? {}).map(([name, port]) => `${name}=http://127.0.0.1:${port}`).join(','));
   if (config.addr) {
     // A proxy inherited from elsewhere (e.g. Claude's environment) can't reach the internal Vault.
     const host = new URL(config.addr).hostname;

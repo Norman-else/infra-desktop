@@ -104,7 +104,7 @@ class EnvSession {
       kubeconfig: () => this.m.writeEnvFiles(this.state),
       settings: this.m.settings,
       binaries: { radar: this.m.binaries.radar ? [this.m.binaries.radar] : undefined },
-      vault: kind === 'vault' && this.m.vaultMcp?.ok ? { mcp: this.m.vaultMcp, config: this.m.vaultConfig(this.state) } : undefined,
+      vault: kind === 'vault' && this.m.vaultMcp?.ok ? { mcp: this.m.vaultMcp, config: { ...this.m.vaultConfig(this.state), peers: this.m.vaultPeers(this.state) } } : undefined,
       onChange: () => this.toolChanged(kind),
       emit: (event) => this.m.emit(event, this.state.name, kind),
     };
@@ -383,6 +383,17 @@ export class EnvManager extends EventEmitter {
   /** The env's Vault settings: settings override, else the vault MCP server's values. */
   vaultConfig(env: EnvInfo): VaultEnvConfig {
     return resolveVaultConfig(env, this.settings.envs?.[env.profile]?.vault, this.claudeVaultEnv);
+  }
+
+  /** The other envs' Vault web UI ports by vault env name (they may or may not be running). */
+  vaultPeers(env: EnvInfo): Record<string, number> {
+    const own = this.vaultConfig(env).env;
+    const peers: Record<string, number> = {};
+    for (const session of this.sessions.values()) {
+      const config = this.vaultConfig(session.state);
+      if (config.env !== own && config.port) peers[config.env] = config.port;
+    }
+    return peers;
   }
 
   /** Look an env's Vault up in its cluster with kubectl. */

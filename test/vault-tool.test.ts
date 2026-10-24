@@ -120,5 +120,16 @@ describe('vaultProcessEnv', () => {
     expect(env.AWS_REGION_DEV).toBe('us-west-2');
     expect(env.K8S_CONTEXT_DEV).toBe('acme-dev');
     expect(env.INHERIT_NETWORK_PROXY_FROM_SHELL).toBe('false');
+    expect(env.VAULT_MCP_PEERS).toBeUndefined();
+  });
+
+  it('passes the other envs\' Vault web UIs as peers', () => {
+    const env = vaultProcessEnv(
+      {},
+      { ok: true, command: ['uvx', '--from', 'x', 'vault-mcp-web-ui'], env: {}, startTimeoutMs: 300_000 },
+      { env: 'dev', port: 9291, peers: { sat: 9292, prod: 9293 } },
+      'acme-dev',
+    );
+    expect(env.VAULT_MCP_PEERS).toBe('sat=http://127.0.0.1:9292,prod=http://127.0.0.1:9293');
   });
 });
